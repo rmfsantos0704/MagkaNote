@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
+const { MEASUREMENT_UNITS } = require('./PriceReport');
 
 const CATEGORIES = [
   'Produce',
@@ -39,9 +40,14 @@ const ItemSchema = new Schema(
       match: [/^\d{13}$/, 'EAN-13 barcode must be exactly 13 digits'],
     },
     baseline_price: {
-      type: Number, // seeded from supermarket scrape (SM, Puregold, etc.)
-      required: true,
+      type: Number, // seeded from supermarket scrape; null until a price is known
+      default: null,
       min: 0,
+    },
+    baseline_unit: {
+      type: String, // the unit the baseline price is quoted in
+      enum: MEASUREMENT_UNITS,
+      default: 'kilo',
     },
   },
   {

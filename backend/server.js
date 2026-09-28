@@ -23,9 +23,9 @@ app.get('/api/health', (req, res) => {
 });
 
 // --- Route mounts (Phase 3 will fill these in) ---
-// app.use('/api/items', require('./routes/items'));
-// app.use('/api/prices', require('./routes/prices'));
-// app.use('/api/recipes', require('./routes/recipes'));
+app.use('/api/items', require('./routes/items'));
+app.use('/api/prices', require('./routes/prices'));
+app.use('/api/recipes', require('./routes/recipes'));
 // app.use('/api/users', require('./routes/users'));
 
 // --- 404 fallback ---
@@ -35,6 +35,15 @@ app.use((req, res) => {
 
 // --- Central error handler ---
 app.use((err, req, res, next) => {
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({ error: err.message });
+  }
+  if (err.name === 'CastError') {
+    return res.status(400).json({ error: `Invalid value for ${err.path}` });
+  }
+  if (err.code === 11000) {
+    return res.status(409).json({ error: 'Duplicate value', fields: err.keyValue });
+  }
   console.error(err.stack);
   res.status(err.status || 500).json({ error: err.message || 'Server error' });
 });
