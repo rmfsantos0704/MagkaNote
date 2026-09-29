@@ -1,7 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const { getPriceEstimate } = require('../services/pricingService');
-const { VALID_ZONES } = require('../models/User');
+const { PSGC_CODE_PATTERN } = require('../models/User');
 const PriceReport = require('../models/PriceReport');
 const { MEASUREMENT_UNITS } = require('../models/PriceReport');
 const User = require('../models/User');
@@ -11,16 +11,20 @@ const SOURCE_TYPES = ['palengke', 'supermarket', 'sari_sari_store'];
 
 const router = express.Router();
 
-// GET /api/prices/estimate?item_id=...&zone=Cebu[&unit=kilo][&source=palengke]
+// GET /api/prices/estimate?item_id=...&location_code=072217000[&unit=kilo][&source=palengke]
+// location_code is the PSGC code of a city/municipality, picked from the
+// region -> province -> city cascade (see src/screens/LocationPickerScreen on
+// the frontend). We don't validate it against the PSGC API here, only its
+// shape, to keep this endpoint fast and independent of a third-party outage.
 router.get('/estimate', async (req, res, next) => {
   try {
-    const { item_id, zone, unit, source } = req.query;
+    const { item_id, location_code, unit, source } = req.query;
 
     if (!item_id || !mongoose.isValidObjectId(item_id)) {
       return res.status(400).json({ error: 'A valid item_id is required' });
     }
-    if (!zone || !VALID_ZONES.includes(zone)) {
-      return res.status(400).json({ error: `zone must be one of: ${VALID_ZONES.join(', ')}` });
+    if (!location_code || !PSGC_CODE_PATTERN.test(location_code)) {
+      return res.status(400).json({ error: 'location_code must be a 9-digit PSGC city/municipality code' });
     }
     if (unit && !MEASUREMENT_UNITS.includes(unit)) {
       return res.status(400).json({ error: `unit must be one of: ${MEASUREMENT_UNITS.join(', ')}` });
@@ -31,7 +35,7 @@ router.get('/estimate', async (req, res, next) => {
 
     const result = await getPriceEstimate({
       itemId: item_id,
-      zone,
+      locationCode: location_code,
       unit,
       sourceType: source,
     });
@@ -46,15 +50,23 @@ router.get('/estimate', async (req, res, next) => {
 // POST /api/prices
 // Crowdsourced price submission.
 // NOTE: user_id comes from the body for now. Once auth exists (JWT), read it from the token instead.
+// location_psgc_code/location_name are sent by the client from the same PSGC
+// picker used for search, so they always match what the user selected.
 router.post('/', async (req, res, next) => {
   try {
-    const { item_id, user_id, price, measurement_unit, location_zone, source_type } = req.body;
+    const { item_id, user_id, price, measurement_unit, location_psgc_code, location_name, source_type } = req.body;
 
     if (!mongoose.isValidObjectId(item_id) || !mongoose.isValidObjectId(user_id)) {
       return res.status(400).json({ error: 'Valid item_id and user_id are required' });
     }
     if (typeof price !== 'number' || !(price > 0)) {
       return res.status(400).json({ error: 'price must be a number greater than 0' });
+    }
+    if (!location_psgc_code || !PSGC_CODE_PATTERN.test(location_psgc_code)) {
+      return res.status(400).json({ error: 'location_psgc_code must be a 9-digit PSGC city/municipality code' });
+    }
+    if (!location_name || !location_name.trim()) {
+      return res.status(400).json({ error: 'location_name is required' });
     }
 
     const [item, user] = await Promise.all([
@@ -69,7 +81,8 @@ router.post('/', async (req, res, next) => {
       user_id,
       price,
       measurement_unit,
-      location_zone,
+      location_psgc_code,
+      location_name,
       source_type,
     });
 

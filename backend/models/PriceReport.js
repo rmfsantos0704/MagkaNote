@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
-const { VALID_ZONES } = require('./User');
+const { PSGC_CODE_PATTERN } = require('./User');
 
 // "Tingi" culture: Filipinos frequently buy in small, informal local units
 // rather than fixed metric weights, especially at the palengke.
@@ -39,11 +39,19 @@ const PriceReportSchema = new Schema(
       enum: MEASUREMENT_UNITS,
       required: true,
     },
-    location_zone: {
+    // City/municipality level is the right granularity for a palengke: prices
+    // vary block by block within a city but rarely make sense averaged across
+    // a whole province. This is the PSGC code of that city/municipality.
+    location_psgc_code: {
       type: String,
-      enum: VALID_ZONES,
       required: true,
+      match: [PSGC_CODE_PATTERN, 'location_psgc_code must be a 9-digit PSGC code'],
       index: true,
+    },
+    location_name: {
+      type: String,
+      required: true,
+      trim: true,
     },
     source_type: {
       // Distinguishes the "Palengke vs. Supermarket" toggle at the data level
@@ -69,8 +77,8 @@ const PriceReportSchema = new Schema(
 );
 
 // Speeds up the 14-day rolling average aggregation, which always filters by
-// item_id + location_zone and sorts/filters by timestamp.
-PriceReportSchema.index({ item_id: 1, location_zone: 1, timestamp: -1 });
+// item_id + location_psgc_code and sorts/filters by timestamp.
+PriceReportSchema.index({ item_id: 1, location_psgc_code: 1, timestamp: -1 });
 
 module.exports = mongoose.model('PriceReport', PriceReportSchema);
 module.exports.MEASUREMENT_UNITS = MEASUREMENT_UNITS;

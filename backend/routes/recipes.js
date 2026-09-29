@@ -2,7 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const Recipe = require('../models/Recipe');
 const User = require('../models/User');
-const { VALID_ZONES } = require('../models/User');
+const { PSGC_CODE_PATTERN } = require('../models/User');
 const { MEASUREMENT_UNITS } = require('../models/PriceReport');
 const { estimateRecipe } = require('../services/recipeService');
 
@@ -28,14 +28,15 @@ function validateItems(items) {
 }
 
 // POST /api/recipes/estimate
-// body: { zone, source?, items: [{ item_id, quantity, measurement_unit }] }
-// The Smart Note calls this every time an ingredient is added or changed.
+// body: { location_code, source?, items: [{ item_id, quantity, measurement_unit }] }
+// location_code is a 9-digit PSGC city/municipality code, from the location picker.
+// The Smart Note calls this every time an ingredient, quantity, unit or location changes.
 router.post('/estimate', async (req, res, next) => {
   try {
-    const { zone, source, items } = req.body;
+    const { location_code, source, items } = req.body;
 
-    if (!VALID_ZONES.includes(zone)) {
-      return res.status(400).json({ error: `zone must be one of: ${VALID_ZONES.join(', ')}` });
+    if (!location_code || !PSGC_CODE_PATTERN.test(location_code)) {
+      return res.status(400).json({ error: 'location_code must be a 9-digit PSGC city/municipality code' });
     }
     if (source && !SOURCE_TYPES.includes(source)) {
       return res.status(400).json({ error: 'Invalid source' });
@@ -43,30 +44,30 @@ router.post('/estimate', async (req, res, next) => {
     const problem = validateItems(items);
     if (problem) return res.status(400).json({ error: problem });
 
-    res.json(await estimateRecipe({ items, zone, source }));
+    res.json(await estimateRecipe({ items, locationCode: location_code, source }));
   } catch (err) {
     next(err);
   }
 });
 
 // POST /api/recipes
-// body: { user_id, title, zone, source?, items: [...] }
+// body: { user_id, title, location_code, source?, items: [...] }
 // Saves the recipe with a snapshot of its estimated total.
 router.post('/', async (req, res, next) => {
   try {
-    const { user_id, title, zone, source, items } = req.body;
+    const { user_id, title, location_code, source, items } = req.body;
 
     if (!mongoose.isValidObjectId(user_id) || !(await User.exists({ _id: user_id }))) {
       return res.status(400).json({ error: 'A valid user_id is required' });
     }
     if (!title || !title.trim()) return res.status(400).json({ error: 'title is required' });
-    if (!VALID_ZONES.includes(zone)) {
-      return res.status(400).json({ error: `zone must be one of: ${VALID_ZONES.join(', ')}` });
+    if (!location_code || !PSGC_CODE_PATTERN.test(location_code)) {
+      return res.status(400).json({ error: 'location_code must be a 9-digit PSGC city/municipality code' });
     }
     const problem = validateItems(items);
     if (problem) return res.status(400).json({ error: problem });
 
-    const estimate = await estimateRecipe({ items, zone, source });
+    const estimate = await estimateRecipe({ items, locationCode: location_code, source });
 
     const recipe = await Recipe.create({
       user_id,

@@ -8,12 +8,12 @@ const { getPriceEstimate } = require('./pricingService');
  * isn't reliable, so a line with no matching data is returned as unpriced
  * instead of guessed.
  */
-async function estimateRecipe({ items, zone, source }) {
+async function estimateRecipe({ items, locationCode, source }) {
   const lines = await Promise.all(
     items.map(async ({ item_id, quantity, measurement_unit }) => {
       const result = await getPriceEstimate({
         itemId: item_id,
-        zone,
+        locationCode,
         unit: measurement_unit,
         sourceType: source,
       });
@@ -49,7 +49,7 @@ async function estimateRecipe({ items, zone, source }) {
   const priced = lines.filter((l) => l.priced);
 
   return {
-    zone,
+    location_psgc_code: locationCode,
     lines,
     total: {
       estimated: round2(sum(priced, 'cost')),

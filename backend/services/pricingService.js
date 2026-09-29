@@ -10,22 +10,22 @@ const MAX_NET_DOWNVOTES = 3; // hide reports where (downvotes - upvotes) >= this
 // -----------------------------------------------------------------------------
 
 /**
- * Builds the aggregation pipeline for one item + zone.
+ * Builds the aggregation pipeline for one item + location (a PSGC city/municipality code).
  *
  * Steps:
- *  1. $match   -> last N days, right item/zone, not heavily downvoted
+ *  1. $match   -> last N days, right item/location, not heavily downvoted
  *  2. $group   -> one bucket per (measurement_unit, source_type), because
  *                 "80 per kilo" and "80 per tali" must never be averaged together
  *  3. $percentile -> Q1/Q3 per bucket (needs MongoDB 7.0+, Atlas M0 qualifies)
  *  4. Tukey fences -> [Q1 - 1.5*IQR, Q3 + 1.5*IQR]; reports outside are dropped
  *  5. Vote-weighted average of the surviving reports + min/max as the range
  */
-function buildPipeline({ itemId, zone, unit, sourceType, days }) {
+function buildPipeline({ itemId, locationCode, unit, sourceType, days }) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const match = {
     item_id: new mongoose.Types.ObjectId(itemId),
-    location_zone: zone,
+    location_psgc_code: locationCode,
     timestamp: { $gte: since },
     $expr: { $lt: [{ $subtract: ['$downvotes', '$upvotes'] }, MAX_NET_DOWNVOTES] },
   };
@@ -157,19 +157,19 @@ function confidenceFor(sampleSize) {
 }
 
 /**
- * Returns price estimates for an item in a zone.
+ * Returns price estimates for an item at a location (PSGC city/municipality code).
  * Falls back to the seeded baseline (supermarket) price when nobody has
  * reported anything in the last 14 days.
  */
-async function getPriceEstimate({ itemId, zone, unit, sourceType, days = WINDOW_DAYS }) {
+async function getPriceEstimate({ itemId, locationCode, unit, sourceType, days = WINDOW_DAYS }) {
   const results = await PriceReport.aggregate(
-    buildPipeline({ itemId, zone, unit, sourceType, days })
+    buildPipeline({ itemId, locationCode, unit, sourceType, days })
   );
 
   if (results.length > 0) {
     return {
       item_id: itemId,
-      zone,
+      location_psgc_code: locationCode,
       window_days: days,
       origin: 'crowdsourced',
       estimates: results.map((r) => ({ ...r, confidence: confidenceFor(r.sample_size) })),
@@ -181,12 +181,12 @@ async function getPriceEstimate({ itemId, zone, unit, sourceType, days = WINDOW_
 
   // Item exists but nobody has reported a price and there is no baseline yet
   if (item.baseline_price == null) {
-    return { item_id: itemId, zone, window_days: days, origin: 'none', estimates: [] };
+    return { item_id: itemId, location_psgc_code: locationCode, window_days: days, origin: 'none', estimates: [] };
   }
 
   return {
     item_id: itemId,
-    zone,
+    location_psgc_code: locationCode,
     window_days: days,
     origin: 'baseline',
     estimates: [
