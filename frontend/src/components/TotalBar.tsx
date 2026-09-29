@@ -1,7 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { peso } from '../format';
-import { colors } from '../theme';
+import { colors, fonts } from '../theme';
 import type { RecipeEstimate } from '../types';
 
 interface Props {
@@ -54,16 +54,16 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     gap: 4,
   },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  label: { fontSize: 14, fontWeight: '600', color: colors.text },
-  zone: { fontSize: 12, color: colors.muted },
+  label: { fontSize: 13, fontFamily: fonts.bodyMedium, color: colors.cream },
+  zone: { fontSize: 12, fontFamily: fonts.body, color: colors.muted },
   amountBlock: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  amount: { fontSize: 26, fontWeight: '800', color: colors.primary },
+  amount: { fontSize: 28, fontFamily: fonts.displaySemibold, color: colors.accent },
   dim: { opacity: 0.5 },
-  range: { fontSize: 12, color: colors.muted },
-  warning: { fontSize: 12, color: colors.accent },
-  error: { fontSize: 12, color: colors.danger },
+  range: { fontSize: 12, fontFamily: fonts.body, color: colors.muted },
+  warning: { fontSize: 12, fontFamily: fonts.body, color: colors.red },
+  error: { fontSize: 12, fontFamily: fonts.body, color: colors.danger },
 });

@@ -18,7 +18,7 @@ import {
   type PsgcProvince,
   type PsgcRegion,
 } from '../psgc';
-import { colors, radius } from '../theme';
+import { colors, fonts, radius } from '../theme';
 import type { Location } from '../types';
 
 interface Props {
@@ -227,8 +227,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
   },
   headerButton: { minWidth: 60 },
-  headerButtonText: { color: colors.primary, fontWeight: '600', fontSize: 15 },
-  headerTitle: { flex: 1, textAlign: 'center', fontWeight: '700', fontSize: 16, color: colors.text },
+  headerButtonText: { color: colors.accent, fontFamily: fonts.bodyMedium, fontSize: 15 },
+  headerTitle: { flex: 1, textAlign: 'center', fontFamily: fonts.displaySemibold, fontSize: 17, color: colors.cream },
   search: {
     margin: 12,
     backgroundColor: colors.card,
@@ -238,7 +238,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 16,
-    color: colors.text,
+    fontFamily: fonts.body,
+    color: colors.cream,
   },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   error: { color: colors.danger, textAlign: 'center' },
@@ -252,7 +253,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   rowPressed: { backgroundColor: colors.primaryLight },
-  rowText: { fontSize: 15, color: colors.text, flex: 1 },
+  rowText: { fontSize: 15, fontFamily: fonts.body, color: colors.cream, flex: 1 },
   chevron: { color: colors.muted, fontSize: 18 },
-  empty: { textAlign: 'center', color: colors.muted, marginTop: 24 },
+  empty: { textAlign: 'center', color: colors.muted, fontFamily: fonts.body, marginTop: 24 },
 });

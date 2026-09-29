@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { describeError, isCancel, searchItems } from '../api';
 import { useDebounce } from '../hooks/useDebounce';
-import { colors, radius } from '../theme';
+import { colors, fonts, radius } from '../theme';
 import type { Item } from '../types';
 import { Thumbnail } from './Thumbnail';
 
@@ -111,7 +111,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    color: colors.text,
+    fontFamily: fonts.body,
+    color: colors.cream,
   },
   panel: {
     marginTop: 6,
@@ -133,8 +134,8 @@ const styles = StyleSheet.create({
   },
   pressed: { backgroundColor: colors.primaryLight },
   resultText: { flex: 1 },
-  name: { fontSize: 15, fontWeight: '600', color: colors.text },
-  muted: { fontSize: 12, color: colors.muted },
-  add: { color: colors.primary, fontWeight: '700' },
-  error: { color: colors.danger },
+  name: { fontSize: 15, fontFamily: fonts.bodyMedium, color: colors.cream },
+  muted: { fontSize: 12, fontFamily: fonts.body, color: colors.muted },
+  add: { color: colors.accent, fontFamily: fonts.bodySemibold, fontSize: 13 },
+  error: { color: colors.danger, fontFamily: fonts.body },
 });

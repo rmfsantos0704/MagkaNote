@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { StatusBar } from 'expo-status-bar';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -16,7 +17,7 @@ import { IngredientSearch } from '../components/IngredientSearch';
 import { LocationPicker } from '../components/LocationPicker';
 import { TotalBar } from '../components/TotalBar';
 import { defaultQtyFor, stepFor, type MeasurementUnit } from '../constants';
-import { colors, radius } from '../theme';
+import { colors, fonts, radius } from '../theme';
 import type { Item, Location, NoteEntry, RecipeEstimate, SourceType } from '../types';
 
 export default function SmartNoteScreen() {
@@ -172,6 +173,7 @@ export default function SmartNoteScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <StatusBar style="light" />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -222,7 +224,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   listContent: { padding: 16, paddingBottom: 24 },
   header: { gap: 10, marginBottom: 12 },
-  heading: { fontSize: 28, fontWeight: '800', color: colors.primary },
+  heading: { fontFamily: fonts.displaySemibold, fontSize: 30, color: colors.cream },
   titleInput: {
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -231,9 +233,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    color: colors.text,
+    fontFamily: fonts.body,
+    color: colors.cream,
   },
-  sectionLabel: { fontSize: 13, fontWeight: '700', color: colors.muted, marginTop: 4 },
+  sectionLabel: {
+    fontSize: 12,
+    fontFamily: fonts.bodySemibold,
+    color: colors.muted,
+    marginTop: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
   locationButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -246,17 +256,17 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   locationIcon: { fontSize: 16 },
-  locationText: { flex: 1, fontSize: 15, color: colors.text, fontWeight: '600' },
-  locationChange: { fontSize: 13, color: colors.primary, fontWeight: '700' },
+  locationText: { flex: 1, fontSize: 15, color: colors.cream, fontFamily: fonts.bodyMedium },
+  locationChange: { fontSize: 13, color: colors.accent, fontFamily: fonts.bodySemibold },
   toggle: {
     flexDirection: 'row',
-    backgroundColor: colors.border,
+    backgroundColor: colors.faint,
     borderRadius: radius,
     padding: 3,
   },
   toggleButton: { flex: 1, paddingVertical: 10, borderRadius: radius - 3, alignItems: 'center' },
   toggleActive: { backgroundColor: colors.card },
-  toggleText: { fontSize: 14, color: colors.muted, fontWeight: '600' },
-  toggleTextActive: { color: colors.primary },
-  empty: { textAlign: 'center', color: colors.muted, marginTop: 24, paddingHorizontal: 20 },
+  toggleText: { fontSize: 14, color: colors.muted, fontFamily: fonts.bodyMedium },
+  toggleTextActive: { color: colors.accent },
+  empty: { textAlign: 'center', color: colors.muted, fontFamily: fonts.body, marginTop: 24, paddingHorizontal: 20 },
 });

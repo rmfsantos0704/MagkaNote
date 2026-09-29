@@ -2,7 +2,7 @@ import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MEASUREMENT_UNITS, stepFor, type MeasurementUnit } from '../constants';
 import { peso, qty } from '../format';
-import { colors, radius } from '../theme';
+import { colors, fonts, radius } from '../theme';
 import type { EstimateLine, NoteEntry } from '../types';
 import { Thumbnail } from './Thumbnail';
 
@@ -113,17 +113,18 @@ const styles = StyleSheet.create({
   },
   top: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   nameBlock: { flex: 1 },
-  name: { fontSize: 15, fontWeight: '600', color: colors.text },
-  source: { fontSize: 11, color: colors.muted, marginTop: 2 },
+  name: { fontSize: 15, fontFamily: fonts.bodyMedium, color: colors.cream },
+  source: { fontSize: 11, fontFamily: fonts.body, color: colors.muted, marginTop: 2 },
   costBlock: { alignItems: 'flex-end', minWidth: 70 },
-  cost: { fontSize: 16, fontWeight: '700', color: colors.primary },
-  costMuted: { fontSize: 16, color: colors.muted },
-  range: { fontSize: 10, color: colors.muted },
+  cost: { fontSize: 17, fontFamily: fonts.displaySemibold, color: colors.accent },
+  costMuted: { fontSize: 16, fontFamily: fonts.body, color: colors.muted },
+  range: { fontSize: 10, fontFamily: fonts.body, color: colors.muted },
   remove: { padding: 4 },
   removeText: { fontSize: 16, color: colors.muted },
   warning: {
     fontSize: 12,
-    color: colors.accent,
+    fontFamily: fonts.body,
+    color: colors.red,
     backgroundColor: colors.warnBg,
     borderRadius: 8,
     paddingHorizontal: 10,
@@ -139,8 +140,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   stepDisabled: { opacity: 0.4 },
-  stepText: { fontSize: 20, fontWeight: '700', color: colors.primary },
-  quantity: { fontSize: 16, fontWeight: '600', color: colors.text, minWidth: 90, textAlign: 'center' },
+  stepText: { fontSize: 20, fontFamily: fonts.bodySemibold, color: colors.accent },
+  quantity: { fontSize: 16, fontFamily: fonts.bodyMedium, color: colors.cream, minWidth: 90, textAlign: 'center' },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -149,7 +150,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     marginRight: 6,
   },
-  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { fontSize: 13, color: colors.muted },
-  chipTextActive: { color: '#fff', fontWeight: '700' },
+  chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  chipText: { fontSize: 13, fontFamily: fonts.body, color: colors.muted },
+  chipTextActive: { color: colors.onAccent, fontFamily: fonts.bodySemibold },
 });
