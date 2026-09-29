@@ -1,2 +1,2 @@
-  import SmartNoteScreen from '../screens/SmartNoteScreen';
-  export default SmartNoteScreen;
+import AppRoot from '../AppRoot';
+export default AppRoot;
