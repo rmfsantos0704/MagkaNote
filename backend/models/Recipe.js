@@ -59,6 +59,10 @@ const RecipeSchema = new Schema(
     location_psgc_code: { type: String, trim: true, default: null },
     location_name: { type: String, trim: true, default: null },
     outlet_name: { type: String, trim: true, maxlength: 120, default: null },
+        steps: {
+      type: [{ type: String, trim: true, maxlength: 500 }],
+      default: [],
+    },
     items: {
       type: [RecipeItemSchema],
       default: [],

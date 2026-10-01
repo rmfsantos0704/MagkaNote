@@ -28,6 +28,18 @@ function validateItems(items) {
   return null;
 }
 
+
+/** Shared validation for the optional steps[] array. */
+function validateSteps(steps) {
+  if (steps === undefined) return null; // omitted: POST treats as [], PUT leaves existing steps untouched
+  if (!Array.isArray(steps)) return 'steps must be an array of strings';
+  if (steps.length > 30) return 'A recipe can have at most 30 steps';
+  for (const step of steps) {
+    if (typeof step !== 'string' || !step.trim()) return 'Each step must be non-empty text';
+    if (step.length > 500) return 'Each step must be 500 characters or fewer';
+  }
+  return null;
+}
 /** Pulls the optional Compose-tab fields out of a request body, ignoring blanks. */
 function pickMetadata(body) {
   const meta = {};
@@ -64,7 +76,6 @@ router.post('/estimate', async (req, res, next) => {
     }
     const problem = validateItems(items);
     if (problem) return res.status(400).json({ error: problem });
-
     res.json(await estimateRecipe({ items, locationCode: location_code, source, outletName: outlet_name?.trim() || undefined }));
   } catch (err) {
     next(err);
@@ -76,7 +87,7 @@ router.post('/estimate', async (req, res, next) => {
 // Saves the recipe with a snapshot of its estimated total.
 router.post('/', async (req, res, next) => {
   try {
-    const { user_id, title, location_code, location_name, outlet_name, source, items, supermarket_total } = req.body;
+    const { user_id, title, location_code, location_name, outlet_name, source, items, steps, supermarket_total } = req.body;
 
     if (!mongoose.isValidObjectId(user_id) || !(await User.exists({ _id: user_id }))) {
       return res.status(400).json({ error: 'A valid user_id is required' });
@@ -90,12 +101,17 @@ router.post('/', async (req, res, next) => {
     }
     const problem = validateItems(items);
     if (problem) return res.status(400).json({ error: problem });
+    const stepsProblem = validateSteps(steps);
+    if (stepsProblem) return res.status(400).json({ error: stepsProblem });
 
     const estimate = await estimateRecipe({ items, locationCode: location_code, source, outletName: outlet_name?.trim() || undefined });
 
     const recipe = await Recipe.create({
       user_id,
-      title,
+      title,  
+            outlet_name: outlet_name?.trim() || null,
+      steps: Array.isArray(steps) ? steps.map((s) => s.trim()) : [],
+      ...pickMetadata(req.body),
       location_psgc_code: location_code,
       location_name: location_name ?? null,
       outlet_name: outlet_name?.trim() || null,
@@ -202,7 +218,7 @@ router.get('/:id', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { user_id, title, location_code, location_name, outlet_name, source, items, supermarket_total } = req.body;
+        const { user_id, title, location_code, location_name, outlet_name, source, items, steps, supermarket_total } = req.body;
 
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ error: 'Invalid recipe id' });
@@ -219,6 +235,8 @@ router.put('/:id', async (req, res, next) => {
     }
     const problem = validateItems(items);
     if (problem) return res.status(400).json({ error: problem });
+    const stepsProblem = validateSteps(steps);
+    if (stepsProblem) return res.status(400).json({ error: stepsProblem });
 
     const existing = await Recipe.findOne({ _id: id, user_id });
     if (!existing) return res.status(404).json({ error: 'Recipe not found' });
@@ -230,6 +248,8 @@ router.put('/:id', async (req, res, next) => {
       location_psgc_code: location_code,
       location_name: location_name ?? existing.location_name,
       outlet_name: outlet_name === undefined ? existing.outlet_name : outlet_name?.trim() || null,
+      steps: steps === undefined ? existing.steps : steps.map((s) => s.trim()),
+      ...pickMetadata(req.body),
       ...pickMetadata(req.body),
       items: items.map(({ item_id, quantity, measurement_unit }) => ({
         item_id,

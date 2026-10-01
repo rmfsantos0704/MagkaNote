@@ -31,6 +31,7 @@ import {
 import { BarcodeScanner } from '../components/BarcodeScanner';
 import { ConfirmAddModal } from '../components/ConfirmAddModal';
 import { LocationPicker } from '../components/LocationPicker';
+import { StepsEditor } from '../components/StepsEditor';
 import { Tag } from '../components/Tag';
 import { Thumbnail } from '../components/Thumbnail';
 import { CATEGORY_EMOJI, defaultQtyFor } from '../constants';
@@ -142,6 +143,7 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
 
   // --- Basket ---
   const [added, setAdded] = useState<AddedIngredient[]>([]);
+  const [steps, setSteps] = useState<string[]>([]);
 
   // --- UI state ---
   const [tab, setTab] = useState<Tab>('compose');
@@ -169,6 +171,7 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
         setDifficulty(r.difficulty ?? null);
         setPhotoUrl(r.image_url ?? null);
         setOutletName(r.outlet_name ?? '');
+        setSteps(r.steps ?? []);
         if (r.location_psgc_code && r.location_name) {
           setLocation({ code: r.location_psgc_code, name: r.location_name });
         } else {
@@ -385,6 +388,7 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
         prep_time: prepTime.trim() || null,
         difficulty,
         notes: notes.trim() || null,
+        steps: steps.map((step) => step.trim()).filter(Boolean),
         image_url: photoUrl,
         supermarket_total: palengkeEstimate ? supermarketTotal : null,
       };
@@ -500,6 +504,8 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
             photoUploading={photoUploading}
             photoError={photoError}
             onPickPhoto={handlePickPhoto}
+            steps={steps}
+            onStepsChange={setSteps}
           />
         )}
 
@@ -566,6 +572,8 @@ interface ComposeProps {
   photoUploading: boolean;
   photoError: string | null;
   onPickPhoto: () => void;
+  steps: string[];
+  onStepsChange: (steps: string[]) => void;
 }
 
 function ComposeTab(p: ComposeProps) {
@@ -654,6 +662,8 @@ function ComposeTab(p: ComposeProps) {
         numberOfLines={8}
         textAlignVertical="top"
       />
+
+      <StepsEditor steps={p.steps} onChange={p.onStepsChange} />
 
       <View style={styles.metaGrid}>
         <View style={styles.metaField}>

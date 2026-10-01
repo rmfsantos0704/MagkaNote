@@ -90,6 +90,7 @@ export interface RecipeDetail {
   location_psgc_code: string | null;
   location_name: string | null;
   outlet_name?: string | null;
+  steps: string[];
   items: RecipeItemDetail[];
   total_estimated_cost: number;
   createdAt: string;
@@ -109,6 +110,7 @@ export interface SaveRecipePayload {
   prep_time?: string | null;
   difficulty?: Difficulty | null;
   notes?: string | null;
+  steps?: string[];
   image_url?: string | null;
   supermarket_total?: number | null;
 }
