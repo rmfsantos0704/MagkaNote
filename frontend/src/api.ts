@@ -52,6 +52,7 @@ export function describeError(err: unknown): string {
     }
     return `Can't reach the server at ${API_URL}. Is the backend running, and is your phone on the same Wi-Fi as your PC?`;
   }
+  if (err instanceof Error && err.message) return err.message;
   return 'Something went wrong. Please try again.';
 }
 
@@ -66,6 +67,8 @@ export async function searchItems(q: string, signal?: AbortSignal): Promise<Item
 export interface EstimatePayload {
   /** 9-digit PSGC city/municipality code, from the LocationPicker. */
   location_code: string;
+  /** Exact store or market name; omitted to use city-wide averages. */
+  outlet_name?: string;
   source: SourceType;
   items: { item_id: string; quantity: number; measurement_unit: MeasurementUnit }[];
 }
@@ -117,6 +120,7 @@ export async function deleteRecipe(id: string, userId: string): Promise<void> {
 export interface PriceEstimateParams {
   itemId: string;
   locationCode: string;
+  outletName?: string;
   unit?: string;
   source?: SourceType;
 }
@@ -124,11 +128,11 @@ export interface PriceEstimateParams {
 /** Per-item price lookup (not the whole-recipe one) — used by the ingredient
  * detail panel to show a Palengke vs Supermarket comparison. */
 export async function getItemPriceEstimate(
-  { itemId, locationCode, unit, source }: PriceEstimateParams,
+  { itemId, locationCode, outletName, unit, source }: PriceEstimateParams,
   signal?: AbortSignal
 ): Promise<PriceEstimateResponse> {
   const { data } = await client.get<PriceEstimateResponse>('/prices/estimate', {
-    params: { item_id: itemId, location_code: locationCode, unit, source },
+    params: { item_id: itemId, location_code: locationCode, outlet_name: outletName, unit, source },
     signal,
   });
   return data;

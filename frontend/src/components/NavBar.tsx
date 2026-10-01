@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts } from '../theme';
 
-export type NavTab = 'dashboard' | 'smartnote';
+export type NavTab = 'dashboard' | 'community' | 'smartnote';
 
 interface Props {
   active: NavTab;
@@ -12,6 +12,7 @@ interface Props {
 
 const TABS: { id: NavTab; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Recipes', icon: '▦' },
+  { id: 'community', label: 'Community', icon: '👥' },
   { id: 'smartnote', label: 'SmartNote', icon: '📝' },
 ];
 

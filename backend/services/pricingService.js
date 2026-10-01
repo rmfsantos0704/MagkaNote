@@ -14,13 +14,13 @@ const MAX_NET_DOWNVOTES = 3; // hide reports where (downvotes - upvotes) >= this
  *
  * Steps:
  *  1. $match   -> last N days, right item/location, not heavily downvoted
- *  2. $group   -> one bucket per (measurement_unit, source_type), because
- *                 "80 per kilo" and "80 per tali" must never be averaged together
+ *  2. $group   -> one bucket per (measurement_unit, source_type), plus an exact
+ *                 outlet when requested, so unlike units or stores never mix
  *  3. $percentile -> Q1/Q3 per bucket (needs MongoDB 7.0+, Atlas M0 qualifies)
  *  4. Tukey fences -> [Q1 - 1.5*IQR, Q3 + 1.5*IQR]; reports outside are dropped
  *  5. Vote-weighted average of the surviving reports + min/max as the range
  */
-function buildPipeline({ itemId, locationCode, unit, sourceType, days }) {
+function buildPipeline({ itemId, locationCode, unit, sourceType, outletName, days }) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const match = {
@@ -31,13 +31,21 @@ function buildPipeline({ itemId, locationCode, unit, sourceType, days }) {
   };
   if (unit) match.measurement_unit = unit;
   if (sourceType) match.source_type = sourceType;
+  if (outletName) {
+    const escapedOutlet = outletName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    match.outlet_name = { $regex: `^${escapedOutlet}$`, $options: 'i' };
+  }
 
   return [
     { $match: match },
 
     {
       $group: {
-        _id: { unit: '$measurement_unit', source: '$source_type' },
+        _id: {
+          unit: '$measurement_unit',
+          source: '$source_type',
+          outlet: outletName ? '$outlet_name' : null,
+        },
         total: { $sum: 1 },
         prices: { $push: '$price' },
         reports: {
@@ -138,6 +146,7 @@ function buildPipeline({ itemId, locationCode, unit, sourceType, days }) {
         _id: 0,
         unit: '$_id.unit',
         source_type: '$_id.source',
+        outlet_name: '$_id.outlet',
         sample_size: { $size: '$kept' },
         outliers_removed: { $subtract: ['$total', { $size: '$kept' }] },
         average_price: { $round: [{ $divide: ['$weightedTotal', '$weightSum'] }, 2] },
@@ -161,9 +170,9 @@ function confidenceFor(sampleSize) {
  * Falls back to the seeded baseline (supermarket) price when nobody has
  * reported anything in the last 14 days.
  */
-async function getPriceEstimate({ itemId, locationCode, unit, sourceType, days = WINDOW_DAYS }) {
+async function getPriceEstimate({ itemId, locationCode, unit, sourceType, outletName, days = WINDOW_DAYS }) {
   const results = await PriceReport.aggregate(
-    buildPipeline({ itemId, locationCode, unit, sourceType, days })
+    buildPipeline({ itemId, locationCode, unit, sourceType, outletName, days })
   );
 
   if (results.length > 0) {
@@ -174,6 +183,10 @@ async function getPriceEstimate({ itemId, locationCode, unit, sourceType, days =
       origin: 'crowdsourced',
       estimates: results.map((r) => ({ ...r, confidence: confidenceFor(r.sample_size) })),
     };
+  }
+
+  if (outletName) {
+    return { item_id: itemId, location_psgc_code: locationCode, window_days: days, origin: 'none', estimates: [] };
   }
 
   const item = await Item.findById(itemId).select('default_name baseline_price baseline_unit');

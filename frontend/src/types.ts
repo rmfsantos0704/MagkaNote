@@ -36,6 +36,7 @@ export interface EstimateLine {
 
 export interface RecipeEstimate {
   location_psgc_code: string;
+  outlet_name?: string | null;
   lines: EstimateLine[];
   total: { estimated: number; low: number; high: number };
   unpriced_count: number;
@@ -63,6 +64,7 @@ export interface RecipeSummary {
   item_count: number;
   total_estimated_cost: number;
   total_supermarket_cost: number | null;
+  outlet_name?: string | null;
   created_at: string;
 }
 
@@ -87,6 +89,7 @@ export interface RecipeDetail {
   is_favorite: boolean;
   location_psgc_code: string | null;
   location_name: string | null;
+  outlet_name?: string | null;
   items: RecipeItemDetail[];
   total_estimated_cost: number;
   createdAt: string;
@@ -98,6 +101,7 @@ export interface SaveRecipePayload {
   title: string;
   location_code: string;
   location_name?: string;
+  outlet_name?: string | null;
   source?: SourceType;
   items: { item_id: string; quantity: number; measurement_unit: MeasurementUnit }[];
   category?: string | null;
@@ -119,6 +123,7 @@ export interface DeviceUser {
 export interface PriceEstimateRow {
   unit: MeasurementUnit;
   source_type: SourceType | 'sari_sari_store';
+  outlet_name?: string | null;
   sample_size: number;
   outliers_removed: number;
   average_price: number;

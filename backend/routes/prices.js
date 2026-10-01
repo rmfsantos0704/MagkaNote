@@ -18,7 +18,7 @@ const router = express.Router();
 // shape, to keep this endpoint fast and independent of a third-party outage.
 router.get('/estimate', async (req, res, next) => {
   try {
-    const { item_id, location_code, unit, source } = req.query;
+    const { item_id, location_code, unit, source, outlet_name } = req.query;
 
     if (!item_id || !mongoose.isValidObjectId(item_id)) {
       return res.status(400).json({ error: 'A valid item_id is required' });
@@ -32,12 +32,16 @@ router.get('/estimate', async (req, res, next) => {
     if (source && !SOURCE_TYPES.includes(source)) {
       return res.status(400).json({ error: 'Invalid source' });
     }
+    if (outlet_name != null && (typeof outlet_name !== 'string' || outlet_name.trim().length > 120)) {
+      return res.status(400).json({ error: 'outlet_name must be 120 characters or fewer' });
+    }
 
     const result = await getPriceEstimate({
       itemId: item_id,
       locationCode: location_code,
       unit,
       sourceType: source,
+      outletName: outlet_name?.trim() || undefined,
     });
 
     if (!result) return res.status(404).json({ error: 'Item not found' });
@@ -54,7 +58,7 @@ router.get('/estimate', async (req, res, next) => {
 // picker used for search, so they always match what the user selected.
 router.post('/', async (req, res, next) => {
   try {
-    const { item_id, user_id, price, measurement_unit, location_psgc_code, location_name, source_type } = req.body;
+    const { item_id, user_id, price, measurement_unit, location_psgc_code, location_name, outlet_name, source_type } = req.body;
 
     if (!mongoose.isValidObjectId(item_id) || !mongoose.isValidObjectId(user_id)) {
       return res.status(400).json({ error: 'Valid item_id and user_id are required' });
@@ -67,6 +71,9 @@ router.post('/', async (req, res, next) => {
     }
     if (!location_name || !location_name.trim()) {
       return res.status(400).json({ error: 'location_name is required' });
+    }
+    if (outlet_name != null && (typeof outlet_name !== 'string' || outlet_name.trim().length > 120)) {
+      return res.status(400).json({ error: 'outlet_name must be 120 characters or fewer' });
     }
 
     const [item, user] = await Promise.all([
@@ -83,6 +90,7 @@ router.post('/', async (req, res, next) => {
       measurement_unit,
       location_psgc_code,
       location_name,
+      outlet_name: outlet_name?.trim() || null,
       source_type,
     });
 

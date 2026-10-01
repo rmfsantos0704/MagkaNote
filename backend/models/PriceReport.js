@@ -53,6 +53,12 @@ const PriceReportSchema = new Schema(
       required: true,
       trim: true,
     },
+    outlet_name: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: null,
+    },
     source_type: {
       // Distinguishes the "Palengke vs. Supermarket" toggle at the data level
       type: String,
@@ -79,6 +85,7 @@ const PriceReportSchema = new Schema(
 // Speeds up the 14-day rolling average aggregation, which always filters by
 // item_id + location_psgc_code and sorts/filters by timestamp.
 PriceReportSchema.index({ item_id: 1, location_psgc_code: 1, timestamp: -1 });
+PriceReportSchema.index({ item_id: 1, location_psgc_code: 1, outlet_name: 1, timestamp: -1 });
 
 module.exports = mongoose.model('PriceReport', PriceReportSchema);
 module.exports.MEASUREMENT_UNITS = MEASUREMENT_UNITS;

@@ -33,8 +33,9 @@ import { ConfirmAddModal } from '../components/ConfirmAddModal';
 import { LocationPicker } from '../components/LocationPicker';
 import { Tag } from '../components/Tag';
 import { Thumbnail } from '../components/Thumbnail';
-import { CATEGORY_EMOJI } from '../constants';
+import { CATEGORY_EMOJI, defaultQtyFor } from '../constants';
 import { isCloudinaryConfigured, uploadRecipePhoto } from '../cloudinary';
+import type { CommunityRecipeCopy } from '../communityCopies';
 import { useDebounce } from '../hooks/useDebounce';
 import { getDeviceUser } from '../deviceUser';
 import { peso } from '../format';
@@ -43,6 +44,66 @@ import type { Difficulty, Item, Location, PriceEstimateRow, RecipeEstimate } fro
 
 const ITEM_CATEGORIES = Object.keys(CATEGORY_EMOJI);
 const DIFFICULTIES: Difficulty[] = ['Easy', 'Medium', 'Hard'];
+const COMMUNITY_ITEM_ALIASES: Record<string, string[]> = {
+  'beef shanks with marrow': ['beef cubes'],
+  'beef brisket or shank': ['beef cubes'],
+  'beef tripe': ['beef cubes'],
+  oxtail: ['beef cubes'],
+  'ground pork': ['ground pork'],
+  'pork belly': ['pork belly'],
+  'whole peppercorns': ['black pepper'],
+  'rice noodles': ['rice noodles'],
+  'napa cabbage': ['cabbage'],
+  cabbage: ['cabbage'],
+  eggplant: ['eggplant'],
+  'string beans': ['string beans'],
+  'bird’s eye chilies': ['chili pepper'],
+  'fish sauce': ['fish sauce'],
+  cornstarch: ['cornstarch'],
+  shrimp: ['shrimp'],
+  'dried shrimp': ['shrimp'],
+  calamansi: ['kalamansi'],
+  tomatoes: ['tomato'],
+  squash: ['squash'],
+  okra: ['okra'],
+  pechay: ['pechay'],
+  'taro leaves': ['taro'],
+};
+
+function normalizeIngredientName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function findCommunityIngredient(name: string, catalog: Item[]): Item | undefined {
+  const queries = COMMUNITY_ITEM_ALIASES[name.toLowerCase()] ?? [name];
+  for (const query of queries) {
+    const normalizedQuery = normalizeIngredientName(query);
+    const match = catalog.find((item) => normalizeIngredientName(item.default_name).includes(normalizedQuery));
+    if (match) return match;
+  }
+  return undefined;
+}
+
+function importedQuantity(amount: string, unit: Item['baseline_unit']): number {
+  const firstNumber = amount.match(/^\s*(\d+(?:\.\d+)?|\d+\s*\/\s*\d+)/)?.[1];
+  if (!firstNumber) return defaultQtyFor(unit);
+  const quantity = firstNumber.includes('/')
+    ? firstNumber.split('/').map(Number).reduce((numerator, denominator) => numerator / denominator)
+    : Number(firstNumber);
+  const measure = amount.toLowerCase();
+
+  if (unit === 'kilo') {
+    if (/\bkg\b|kilo/.test(measure)) return quantity;
+    if (/\bgrams?\b|\bg\b/.test(measure)) return quantity / 1000;
+  }
+  if (unit === 'gramo') {
+    if (/\bkg\b|kilo/.test(measure)) return quantity * 1000;
+    if (/\bgrams?\b|\bg\b/.test(measure)) return quantity;
+  }
+  if (unit === 'tali' && /bunch|bundle|tali/.test(measure)) return quantity;
+  if ((unit === 'piece' || unit === 'piraso') && /piece|pcs|ear|egg|head/.test(measure)) return quantity;
+  return defaultQtyFor(unit);
+}
 
 interface AddedIngredient {
   item: Item;
@@ -54,23 +115,27 @@ type Tab = 'compose' | 'search' | 'basket';
 interface Props {
   /** Present when editing a saved recipe; absent when creating a new one. */
   recipeId?: string;
+  initialTitle?: string;
+  initialNotes?: string;
+  communityCopy?: CommunityRecipeCopy;
   onSaved: () => void;
   onBack: () => void;
 }
 
-export default function SmartNoteScreen({ recipeId, onSaved, onBack }: Props) {
+export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, communityCopy, onSaved, onBack }: Props) {
   const isEditing = !!recipeId;
 
   // --- Compose fields ---
-  const [title, setTitle] = useState('');
-  const [notes, setNotes] = useState('');
-  const [category, setCategory] = useState('');
-  const [servings, setServings] = useState('');
-  const [prepTime, setPrepTime] = useState('');
-  const [difficulty, setDifficulty] = useState<Difficulty | null>(null);
+  const [title, setTitle] = useState(initialTitle ?? '');
+  const [notes, setNotes] = useState(initialNotes ?? '');
+  const [category, setCategory] = useState(communityCopy?.category ?? '');
+  const [servings, setServings] = useState(communityCopy?.servings ? String(communityCopy.servings) : '');
+  const [prepTime, setPrepTime] = useState(communityCopy?.prepTime ?? '');
+  const [difficulty, setDifficulty] = useState<Difficulty | null>(communityCopy?.difficulty ?? null);
   const [location, setLocation] = useState<Location | null>(null);
+  const [outletName, setOutletName] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(communityCopy?.image ?? null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
 
@@ -81,6 +146,7 @@ export default function SmartNoteScreen({ recipeId, onSaved, onBack }: Props) {
   const [tab, setTab] = useState<Tab>('compose');
   const [loadingInitial, setLoadingInitial] = useState(isEditing);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [copyImportNotice, setCopyImportNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -97,15 +163,18 @@ export default function SmartNoteScreen({ recipeId, onSaved, onBack }: Props) {
         setTitle(r.title);
         setNotes(r.notes ?? '');
         setCategory(r.category ?? '');
-        setServings(r.servings ? String(r.servings) : '');
+        setServings(r.servings != null ? String(r.servings) : '');
         setPrepTime(r.prep_time ?? '');
-        setDifficulty(r.difficulty);
-        setPhotoUrl(r.image_url);
+        setDifficulty(r.difficulty ?? null);
+        setPhotoUrl(r.image_url ?? null);
+        setOutletName(r.outlet_name ?? '');
         if (r.location_psgc_code && r.location_name) {
           setLocation({ code: r.location_psgc_code, name: r.location_name });
+        } else {
+          setLocation(null);
         }
         setAdded(
-          r.items
+          (r.items ?? [])
             .filter((line) => line.item_id) // a deleted Item would populate as null
             .map((line) => ({ item: line.item_id, quantity: line.quantity }))
         );
@@ -119,6 +188,32 @@ export default function SmartNoteScreen({ recipeId, onSaved, onBack }: Props) {
       cancelled = true;
     };
   }, [recipeId]);
+
+  useEffect(() => {
+    if (recipeId || !communityCopy?.ingredients?.length) return;
+    let cancelled = false;
+    listItems({ limit: 60 })
+      .then((catalog) => {
+        if (cancelled) return;
+        const imported = communityCopy.ingredients!.flatMap((ingredient) => {
+          const item = findCommunityIngredient(ingredient.name, catalog);
+          return item ? [{ item, quantity: importedQuantity(ingredient.amount, item.baseline_unit) }] : [];
+        });
+        const matchedNames = new Set(imported.map((entry) => normalizeIngredientName(entry.item.default_name)));
+        const unmatched = communityCopy.ingredients!.filter((ingredient) => {
+          const item = findCommunityIngredient(ingredient.name, catalog);
+          return !item || !matchedNames.has(normalizeIngredientName(item.default_name));
+        });
+        setAdded(imported);
+        setCopyImportNotice(unmatched.length
+          ? `${unmatched.length} ingredient${unmatched.length === 1 ? '' : 's'} could not be priced yet; the full list remains in your notes.`
+          : null);
+      })
+      .catch(() => {
+        if (!cancelled) setCopyImportNotice('Could not load the ingredient catalog. The full ingredient list remains in your notes.');
+      });
+    return () => { cancelled = true; };
+  }, [recipeId, communityCopy?.id]);
 
   // If a new note has no location yet, prompt for one as soon as it's needed
   useEffect(() => {
@@ -148,8 +243,8 @@ export default function SmartNoteScreen({ recipeId, onSaved, onBack }: Props) {
       }));
       try {
         const [pal, sm] = await Promise.all([
-          estimateRecipe({ location_code: location.code, source: 'palengke', items }, controller.signal),
-          estimateRecipe({ location_code: location.code, source: 'supermarket', items }, controller.signal),
+          estimateRecipe({ location_code: location.code, outlet_name: outletName.trim() || undefined, source: 'palengke', items }, controller.signal),
+          estimateRecipe({ location_code: location.code, outlet_name: outletName.trim() || undefined, source: 'supermarket', items }, controller.signal),
         ]);
         setPalengkeEstimate(pal);
         setSupermarketEstimate(sm);
@@ -165,7 +260,7 @@ export default function SmartNoteScreen({ recipeId, onSaved, onBack }: Props) {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [added, location]);
+  }, [added, location, outletName]);
 
   const palengkeTotal = palengkeEstimate?.total.estimated ?? 0;
   const supermarketTotal = supermarketEstimate?.total.estimated ?? 0;
@@ -259,6 +354,7 @@ export default function SmartNoteScreen({ recipeId, onSaved, onBack }: Props) {
         title: title.trim(),
         location_code: location.code,
         location_name: location.name,
+        outlet_name: outletName.trim() || null,
         source: 'palengke' as const,
         items: added.map((a) => ({
           item_id: a.item._id,
@@ -370,11 +466,14 @@ export default function SmartNoteScreen({ recipeId, onSaved, onBack }: Props) {
             difficulty={difficulty}
             onDifficulty={setDifficulty}
             location={location}
+            outletName={outletName}
+            onOutletName={setOutletName}
             onOpenPicker={() => setPickerOpen(true)}
             palengkeTotal={palengkeTotal}
             savings={savings}
             estimating={estimating}
             addedCount={added.length}
+            copyImportNotice={copyImportNotice}
             isEditing={isEditing}
             deleting={deleting}
             onDelete={handleDelete}
@@ -388,6 +487,7 @@ export default function SmartNoteScreen({ recipeId, onSaved, onBack }: Props) {
         {tab === 'search' && (
           <SearchTab
             location={location}
+            outletName={outletName}
             addedIds={new Set(added.map((a) => a.item._id))}
             onAdd={addIngredient}
           />
@@ -397,6 +497,8 @@ export default function SmartNoteScreen({ recipeId, onSaved, onBack }: Props) {
           <BasketTab
             added={added}
             estimate={palengkeEstimate}
+            outletName={outletName}
+            copyImportNotice={copyImportNotice}
             palengkeTotal={palengkeTotal}
             supermarketTotal={supermarketTotal}
             savings={savings}
@@ -430,11 +532,14 @@ interface ComposeProps {
   difficulty: Difficulty | null;
   onDifficulty: (v: Difficulty | null) => void;
   location: Location | null;
+  outletName: string;
+  onOutletName: (v: string) => void;
   onOpenPicker: () => void;
   palengkeTotal: number;
   savings: number;
   estimating: boolean;
   addedCount: number;
+  copyImportNotice: string | null;
   isEditing: boolean;
   deleting: boolean;
   onDelete: () => void;
@@ -486,15 +591,30 @@ function ComposeTab(p: ComposeProps) {
       <Pressable onPress={p.onOpenPicker} style={styles.locationRow}>
         <Text style={{ fontSize: 14 }}>📍</Text>
         <Text style={styles.locationText} numberOfLines={1}>
-          {p.location ? p.location.name : 'Set your shopping location'}
+          {p.location ? `City: ${p.location.name}` : 'Choose city or municipality'}
         </Text>
         <Text style={styles.locationChange}>{p.location ? 'Change' : 'Choose'}</Text>
       </Pressable>
 
+      <View style={styles.outletField}>
+        <Text style={styles.metaLabel}>Specific store or market</Text>
+        <TextInput
+          style={styles.outletInput}
+          placeholder="e.g. Puregold Cebu, SM City, Robinsons Galleria"
+          placeholderTextColor={colors.muted}
+          value={p.outletName}
+          onChangeText={p.onOutletName}
+          maxLength={120}
+          autoCapitalize="words"
+        />
+        <Text style={styles.outletHint}>Prices are matched to this outlet in the selected city. Leave blank for city-wide averages.</Text>
+      </View>
+      {!!p.copyImportNotice && <Text style={styles.importNotice}>{p.copyImportNotice}</Text>}
+
       {p.addedCount > 0 && (
         <View style={styles.totalPreview}>
           <View>
-            <Text style={styles.totalPreviewLabel}>Estimated total</Text>
+            <Text style={styles.totalPreviewLabel}>{p.outletName.trim() ? `${p.outletName.trim()} · Estimated total` : 'Estimated total'}</Text>
             <Text style={styles.totalPreviewValue}>
               {p.estimating ? '…' : peso(p.palengkeTotal)}
             </Text>
@@ -579,11 +699,12 @@ function ComposeTab(p: ComposeProps) {
 
 interface SearchProps {
   location: Location | null;
+  outletName: string;
   addedIds: Set<string>;
   onAdd: (item: Item) => void;
 }
 
-function SearchTab({ location, addedIds, onAdd }: SearchProps) {
+function SearchTab({ location, outletName, addedIds, onAdd }: SearchProps) {
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState('All');
   const [results, setResults] = useState<Item[]>([]);
@@ -659,6 +780,7 @@ function SearchTab({ location, addedIds, onAdd }: SearchProps) {
       <IngredientDetail
         item={selected}
         location={location}
+        outletName={outletName}
         onBack={() => setSelected(null)}
         onAdd={() => {
           onAdd(selected);
@@ -759,11 +881,13 @@ function SearchTab({ location, addedIds, onAdd }: SearchProps) {
 function IngredientDetail({
   item,
   location,
+  outletName,
   onBack,
   onAdd,
 }: {
   item: Item;
   location: Location;
+  outletName: string;
   onBack: () => void;
   onAdd: () => void;
 }) {
@@ -777,15 +901,15 @@ function IngredientDetail({
     (async () => {
       try {
         const [pal, sm] = await Promise.all([
-          getItemPriceEstimate({ itemId: item._id, locationCode: location.code, unit: item.baseline_unit, source: 'palengke' }),
-          getItemPriceEstimate({ itemId: item._id, locationCode: location.code, unit: item.baseline_unit, source: 'supermarket' }),
+          getItemPriceEstimate({ itemId: item._id, locationCode: location.code, outletName: outletName.trim() || undefined, unit: item.baseline_unit, source: 'palengke' }),
+          getItemPriceEstimate({ itemId: item._id, locationCode: location.code, outletName: outletName.trim() || undefined, unit: item.baseline_unit, source: 'supermarket' }),
         ]);
         if (cancelled) return;
         const palRow = pal.estimates.find((e) => e.unit === item.baseline_unit) ?? null;
         const smRow = sm.estimates.find((e) => e.unit === item.baseline_unit) ?? null;
         setRows([
-          { label: 'Palengke', row: palRow },
-          { label: 'Supermarket', row: smRow },
+          { label: outletName.trim() ? `${outletName.trim()} · Palengke` : 'Palengke', row: palRow },
+          { label: outletName.trim() ? `${outletName.trim()} · Supermarket` : 'Supermarket', row: smRow },
         ]);
       } catch (err) {
         if (!cancelled) setError(describeError(err));
@@ -794,7 +918,7 @@ function IngredientDetail({
     return () => {
       cancelled = true;
     };
-  }, [item._id, location.code]);
+  }, [item._id, location.code, outletName]);
 
   const cheapestLabel = useMemo(() => {
     if (!rows) return null;
@@ -848,7 +972,9 @@ function IngredientDetail({
           <View style={styles.tipBox}>
             <Text style={styles.tipTitle}>Palengke Tip</Text>
             <Text style={styles.tipText}>
-              Prices are crowdsourced from nearby shoppers and can vary by market and day.
+              {outletName.trim()
+                ? `Showing reports for ${outletName.trim()} in ${location.name}.`
+                : 'Prices are crowdsourced across nearby stores and markets. Name an outlet on Compose to narrow the comparison.'}
             </Text>
           </View>
 
@@ -866,6 +992,8 @@ function IngredientDetail({
 interface BasketProps {
   added: AddedIngredient[];
   estimate: RecipeEstimate | null;
+  outletName: string;
+  copyImportNotice: string | null;
   palengkeTotal: number;
   supermarketTotal: number;
   savings: number;
@@ -882,6 +1010,7 @@ function BasketTab(p: BasketProps) {
       <View style={styles.centerFill}>
         <Text style={{ fontSize: 32, marginBottom: 10 }}>🧺</Text>
         <Text style={styles.muted}>No ingredients yet.</Text>
+        {!!p.copyImportNotice && <Text style={styles.importNotice}>{p.copyImportNotice}</Text>}
         <Pressable onPress={p.onGoToSearch} style={styles.emptyButton}>
           <Text style={styles.emptyButtonText}>Search Ingredients →</Text>
         </Pressable>
@@ -891,14 +1020,15 @@ function BasketTab(p: BasketProps) {
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={styles.tabContent} keyboardShouldPersistTaps="handled">
+      {!!p.copyImportNotice && <Text style={styles.importNotice}>{p.copyImportNotice}</Text>}
       <View style={styles.summaryCard}>
         <View style={styles.summaryRow}>
           <View>
-            <Text style={styles.summaryLabel}>Palengke Total</Text>
+            <Text style={styles.summaryLabel}>{p.outletName.trim() ? `${p.outletName.trim()} · Palengke` : 'Palengke Total'}</Text>
             <Text style={styles.summaryValueGreen}>{peso(p.palengkeTotal)}</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.summaryLabel}>Supermarket Total</Text>
+            <Text style={styles.summaryLabel}>{p.outletName.trim() ? `${p.outletName.trim()} · Supermarket` : 'Supermarket Total'}</Text>
             <Text style={styles.summaryValueMuted}>{peso(p.supermarketTotal)}</Text>
           </View>
         </View>
@@ -1060,6 +1190,20 @@ const styles = StyleSheet.create({
   },
   locationText: { flex: 1, fontSize: 13, fontFamily: fonts.body, color: colors.cream },
   locationChange: { fontSize: 12, fontFamily: fonts.bodySemibold, color: colors.accent },
+  outletField: { gap: 5 },
+  outletInput: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    fontSize: 13,
+    fontFamily: fonts.body,
+    color: colors.cream,
+  },
+  outletHint: { color: colors.muted, fontSize: 10, lineHeight: 15 },
+  importNotice: { color: colors.blue, backgroundColor: colors.blueMuted, borderWidth: 1, borderColor: colors.blueBorder, borderRadius: 10, padding: 10, fontSize: 11, lineHeight: 16 },
 
   totalPreview: {
     flexDirection: 'row',

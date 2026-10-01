@@ -58,6 +58,7 @@ const RecipeSchema = new Schema(
     // asking again. Still just a starting point — editable like everything else.
     location_psgc_code: { type: String, trim: true, default: null },
     location_name: { type: String, trim: true, default: null },
+    outlet_name: { type: String, trim: true, maxlength: 120, default: null },
     items: {
       type: [RecipeItemSchema],
       default: [],

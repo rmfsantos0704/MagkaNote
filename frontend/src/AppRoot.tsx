@@ -4,29 +4,34 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { NavBar, type NavTab } from './components/NavBar';
 import { applyDefaultFont, useAppFonts } from './fonts';
+import AuthScreen, { type AuthMode } from './screens/AuthScreen';
+import CommunityScreen from './screens/CommunityScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import SmartNoteScreen from './screens/SmartNoteScreen';
+import type { CommunityRecipeCopy } from './communityCopies';
 import { colors } from './theme';
 
 const ONBOARDED_KEY = 'magkanote:onboarded';
 
 type Route =
+  | { screen: 'auth'; mode: AuthMode }
   | { screen: 'dashboard' }
-  | { screen: 'smartnote'; recipeId?: string };
+  | { screen: 'community' }
+  | { screen: 'smartnote'; recipeId?: string; recipeTitle?: string; recipeNotes?: string; communityCopy?: CommunityRecipeCopy };
 
 /**
  * App entry point: loads fonts, checks whether onboarding has already been
  * shown (persisted in AsyncStorage so it only appears once per install),
- * then renders onboarding or the main app (Dashboard <-> SmartNote, behind
- * a bottom tab bar).
+ * then renders onboarding or the account-entry screen. Guest access opens
+ * the main app (Dashboard, Community, and SmartNote behind a bottom tab bar).
  *
  * Requires: npx expo install @react-native-async-storage/async-storage
  */
 export default function AppRoot() {
   const fontsLoaded = useAppFonts();
   const [onboarded, setOnboarded] = useState<boolean | null>(null); // null = still checking
-  const [route, setRoute] = useState<Route>({ screen: 'dashboard' });
+  const [route, setRoute] = useState<Route>({ screen: 'auth', mode: 'login' });
 
   useEffect(() => {
     if (!fontsLoaded) return;
@@ -41,6 +46,7 @@ export default function AppRoot() {
 
   const finishOnboarding = () => {
     setOnboarded(true);
+    setRoute({ screen: 'auth', mode: 'login' });
     AsyncStorage.setItem(ONBOARDED_KEY, 'true').catch(() => {
       // Not fatal: onboarding will just show again next launch.
     });
@@ -64,7 +70,7 @@ export default function AppRoot() {
     );
   }
 
-  const activeTab: NavTab = route.screen === 'dashboard' ? 'dashboard' : 'smartnote';
+  const activeTab: NavTab = route.screen === 'community' ? 'community' : route.screen === 'dashboard' ? 'dashboard' : 'smartnote';
   const backToDashboard = () => setRoute({ screen: 'dashboard' });
 
   return (
@@ -72,26 +78,41 @@ export default function AppRoot() {
       <StatusBar style="light" />
 
       <View style={styles.body}>
+        {route.screen === 'auth' && (
+          <AuthScreen
+            mode={route.mode}
+            onModeChange={(mode) => setRoute({ screen: 'auth', mode })}
+            onContinue={() => setRoute({ screen: 'dashboard' })}
+          />
+        )}
         {route.screen === 'dashboard' && (
           <DashboardScreen
             onNew={() => setRoute({ screen: 'smartnote' })}
-            onOpenRecipe={(id) => setRoute({ screen: 'smartnote', recipeId: id })}
+            onEditRecipe={(id, title, notes, copy) => id.startsWith('community-copy:')
+              ? setRoute({ screen: 'smartnote', recipeTitle: title, recipeNotes: notes, communityCopy: copy })
+              : setRoute({ screen: 'smartnote', recipeId: id })}
           />
         )}
         {route.screen === 'smartnote' && (
           <SmartNoteScreen
-            key={route.recipeId ?? 'new'} // fresh state per recipe (or per new note)
+            key={`${route.recipeId ?? 'new'}:${route.recipeTitle ?? ''}:${route.recipeNotes ?? ''}:${route.communityCopy?.id ?? ''}`} // fresh state per recipe (or per new note)
             recipeId={route.recipeId}
+            initialTitle={route.recipeTitle}
+            initialNotes={route.recipeNotes}
+            communityCopy={route.communityCopy}
             onSaved={backToDashboard}
             onBack={backToDashboard}
           />
         )}
+        {route.screen === 'community' && <CommunityScreen />}
       </View>
 
-      <NavBar
-        active={activeTab}
-        onNavigate={(tab) => setRoute(tab === 'dashboard' ? { screen: 'dashboard' } : { screen: 'smartnote' })}
-      />
+      {route.screen !== 'auth' && (
+        <NavBar
+          active={activeTab}
+          onNavigate={(tab) => setRoute(tab === 'dashboard' ? { screen: 'dashboard' } : tab === 'community' ? { screen: 'community' } : { screen: 'smartnote' })}
+        />
+      )}
     </View>
   );
 }

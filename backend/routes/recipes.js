@@ -51,7 +51,7 @@ function pickMetadata(body) {
 // The Smart Note calls this every time an ingredient, quantity, unit or location changes.
 router.post('/estimate', async (req, res, next) => {
   try {
-    const { location_code, source, items } = req.body;
+    const { location_code, source, outlet_name, items } = req.body;
 
     if (!location_code || !PSGC_CODE_PATTERN.test(location_code)) {
       return res.status(400).json({ error: 'location_code must be a 9-digit PSGC city/municipality code' });
@@ -59,10 +59,13 @@ router.post('/estimate', async (req, res, next) => {
     if (source && !SOURCE_TYPES.includes(source)) {
       return res.status(400).json({ error: 'Invalid source' });
     }
+    if (outlet_name != null && (typeof outlet_name !== 'string' || outlet_name.trim().length > 120)) {
+      return res.status(400).json({ error: 'outlet_name must be 120 characters or fewer' });
+    }
     const problem = validateItems(items);
     if (problem) return res.status(400).json({ error: problem });
 
-    res.json(await estimateRecipe({ items, locationCode: location_code, source }));
+    res.json(await estimateRecipe({ items, locationCode: location_code, source, outletName: outlet_name?.trim() || undefined }));
   } catch (err) {
     next(err);
   }
@@ -73,7 +76,7 @@ router.post('/estimate', async (req, res, next) => {
 // Saves the recipe with a snapshot of its estimated total.
 router.post('/', async (req, res, next) => {
   try {
-    const { user_id, title, location_code, location_name, source, items, supermarket_total } = req.body;
+    const { user_id, title, location_code, location_name, outlet_name, source, items, supermarket_total } = req.body;
 
     if (!mongoose.isValidObjectId(user_id) || !(await User.exists({ _id: user_id }))) {
       return res.status(400).json({ error: 'A valid user_id is required' });
@@ -82,16 +85,20 @@ router.post('/', async (req, res, next) => {
     if (!location_code || !PSGC_CODE_PATTERN.test(location_code)) {
       return res.status(400).json({ error: 'location_code must be a 9-digit PSGC city/municipality code' });
     }
+    if (outlet_name != null && (typeof outlet_name !== 'string' || outlet_name.trim().length > 120)) {
+      return res.status(400).json({ error: 'outlet_name must be 120 characters or fewer' });
+    }
     const problem = validateItems(items);
     if (problem) return res.status(400).json({ error: problem });
 
-    const estimate = await estimateRecipe({ items, locationCode: location_code, source });
+    const estimate = await estimateRecipe({ items, locationCode: location_code, source, outletName: outlet_name?.trim() || undefined });
 
     const recipe = await Recipe.create({
       user_id,
       title,
       location_psgc_code: location_code,
       location_name: location_name ?? null,
+      outlet_name: outlet_name?.trim() || null,
       ...pickMetadata(req.body),
       items: items.map(({ item_id, quantity, measurement_unit }) => ({
         item_id,
@@ -120,7 +127,7 @@ router.get('/', async (req, res, next) => {
     const recipes = await Recipe.find({ user_id })
       .sort({ is_favorite: -1, createdAt: -1 })
       .limit(100)
-      .select('title category servings prep_time difficulty image_url is_favorite items total_estimated_cost total_supermarket_cost createdAt');
+      .select('title category servings prep_time difficulty image_url is_favorite items total_estimated_cost total_supermarket_cost outlet_name createdAt');
 
     res.json({
       count: recipes.length,
@@ -136,6 +143,7 @@ router.get('/', async (req, res, next) => {
         item_count: r.items.length,
         total_estimated_cost: r.total_estimated_cost,
         total_supermarket_cost: r.total_supermarket_cost,
+        outlet_name: r.outlet_name,
         created_at: r.createdAt,
       })),
     });
@@ -194,7 +202,7 @@ router.get('/:id', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { user_id, title, location_code, location_name, source, items, supermarket_total } = req.body;
+    const { user_id, title, location_code, location_name, outlet_name, source, items, supermarket_total } = req.body;
 
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ error: 'Invalid recipe id' });
@@ -206,18 +214,22 @@ router.put('/:id', async (req, res, next) => {
     if (!location_code || !PSGC_CODE_PATTERN.test(location_code)) {
       return res.status(400).json({ error: 'location_code must be a 9-digit PSGC city/municipality code' });
     }
+    if (outlet_name != null && (typeof outlet_name !== 'string' || outlet_name.trim().length > 120)) {
+      return res.status(400).json({ error: 'outlet_name must be 120 characters or fewer' });
+    }
     const problem = validateItems(items);
     if (problem) return res.status(400).json({ error: problem });
 
     const existing = await Recipe.findOne({ _id: id, user_id });
     if (!existing) return res.status(404).json({ error: 'Recipe not found' });
 
-    const estimate = await estimateRecipe({ items, locationCode: location_code, source });
+    const estimate = await estimateRecipe({ items, locationCode: location_code, source, outletName: outlet_name?.trim() || undefined });
 
     existing.set({
       title,
       location_psgc_code: location_code,
       location_name: location_name ?? existing.location_name,
+      outlet_name: outlet_name === undefined ? existing.outlet_name : outlet_name?.trim() || null,
       ...pickMetadata(req.body),
       items: items.map(({ item_id, quantity, measurement_unit }) => ({
         item_id,
