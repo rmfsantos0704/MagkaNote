@@ -41,6 +41,7 @@ import { getDeviceUser } from '../deviceUser';
 import { peso } from '../format';
 import { colors, fonts, radius, radiusPill } from '../theme';
 import type { Difficulty, Item, Location, PriceEstimateRow, RecipeEstimate } from '../types';
+import { getUserSettings } from '../features/settings/settingsApi';
 
 const ITEM_CATEGORIES = Object.keys(CATEGORY_EMOJI);
 const DIFFICULTIES: Difficulty[] = ['Easy', 'Medium', 'Hard'];
@@ -214,6 +215,24 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
       });
     return () => { cancelled = true; };
   }, [recipeId, communityCopy?.id]);
+
+  useEffect(() => {
+    if (recipeId || communityCopy) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const user = await getDeviceUser();
+        const settings = await getUserSettings(user._id);
+        if (cancelled) return;
+        setLocation(settings.preferences.location);
+        const preferredMarket = settings.preferences.market.trim();
+        setOutletName(preferredMarket.toLowerCase() === 'any nearby market' ? '' : preferredMarket);
+      } catch {
+        // New recipes remain usable when settings are unavailable.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [recipeId, communityCopy]);
 
   // If a new note has no location yet, prompt for one as soon as it's needed
   useEffect(() => {

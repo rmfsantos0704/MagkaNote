@@ -5,6 +5,21 @@ const { Schema } = mongoose;
 // See services/psgcService.js for validation and lookups against the PSGC API.
 const PSGC_CODE_PATTERN = /^\d{9}$/;
 
+const UserPreferencesSchema = new Schema(
+  {
+    radius: { type: Number, enum: [1, 3, 5, 10], default: 3 },
+    market: { type: String, trim: true, maxlength: 120, default: 'Any nearby market' },
+    household_size: { type: Number, min: 1, max: 20, default: 4 },
+    weekly_budget: { type: Number, min: 0, default: null },
+    dietary: { type: [String], default: [] },
+    price_drops: { type: Boolean, default: true },
+    nearby_reports: { type: Boolean, default: true },
+    weekly_summary: { type: Boolean, default: true },
+    public_profile: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const UserSchema = new Schema(
   {
     username: {
@@ -47,6 +62,8 @@ const UserSchema = new Schema(
       trim: true,
       default: null,
     },
+    profile_image_url: { type: String, trim: true, default: null },
+    preferences: { type: UserPreferencesSchema, default: () => ({}) },
     trust_score: {
       type: Number,
       default: 100, // starting reputation; adjusted by upvotes/downvotes on their price reports

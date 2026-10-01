@@ -28,6 +28,7 @@ import type { RecipeDetail, RecipeSummary } from '../types';
 interface Props {
   onNew: () => void;
   onEditRecipe: (id: string, title: string, notes?: string, copy?: CommunityRecipeCopy) => void;
+  onOpenSettings: () => void;
 }
 
 interface RecipeFrame {
@@ -52,7 +53,7 @@ function sortRecipes(list: RecipeSummary[]): RecipeSummary[] {
   });
 }
 
-export default function DashboardScreen({ onNew, onEditRecipe }: Props) {
+export default function DashboardScreen({ onNew, onEditRecipe, onOpenSettings }: Props) {
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const [recipes, setRecipes] = useState<RecipeSummary[] | null>(null);
   const [communityCopies, setCommunityCopies] = useState<CommunityRecipeCopy[]>([]);
@@ -210,9 +211,9 @@ export default function DashboardScreen({ onNew, onEditRecipe }: Props) {
             <Text style={styles.eyebrow}>{greeting()}</Text>
             <Text style={styles.heading}>My Recipes</Text>
           </View>
-          <View style={styles.avatar}>
+          <Pressable onPress={onOpenSettings} style={styles.avatar} accessibilityRole="button" accessibilityLabel="Open settings">
             <Text style={{ fontSize: 16 }}>🥘</Text>
-          </View>
+          </Pressable>
         </View>
 
         <View style={styles.statRow}>

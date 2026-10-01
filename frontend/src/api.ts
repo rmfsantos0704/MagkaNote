@@ -36,10 +36,12 @@ function resolveBaseUrl(): string {
 
 export const API_URL = resolveBaseUrl();
 
-const client = axios.create({
+export const apiClient = axios.create({
   baseURL: `${API_URL}/api`,
   timeout: 10000,
 });
+
+const client = apiClient;
 
 export const isCancel = axios.isCancel;
 

@@ -10,6 +10,7 @@ import DashboardScreen from './screens/DashboardScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import SmartNoteScreen from './screens/SmartNoteScreen';
 import type { CommunityRecipeCopy } from './communityCopies';
+import SettingsScreen from './features/settings/SettingsScreen';
 import { colors } from './theme';
 
 const ONBOARDED_KEY = 'magkanote:onboarded';
@@ -18,6 +19,7 @@ type Route =
   | { screen: 'auth'; mode: AuthMode }
   | { screen: 'dashboard' }
   | { screen: 'community' }
+  | { screen: 'settings' }
   | { screen: 'smartnote'; recipeId?: string; recipeTitle?: string; recipeNotes?: string; communityCopy?: CommunityRecipeCopy };
 
 /**
@@ -88,6 +90,7 @@ export default function AppRoot() {
         {route.screen === 'dashboard' && (
           <DashboardScreen
             onNew={() => setRoute({ screen: 'smartnote' })}
+            onOpenSettings={() => setRoute({ screen: 'settings' })}
             onEditRecipe={(id, title, notes, copy) => id.startsWith('community-copy:')
               ? setRoute({ screen: 'smartnote', recipeTitle: title, recipeNotes: notes, communityCopy: copy })
               : setRoute({ screen: 'smartnote', recipeId: id })}
@@ -104,10 +107,13 @@ export default function AppRoot() {
             onBack={backToDashboard}
           />
         )}
+        {route.screen === 'settings' && (
+          <SettingsScreen onBack={backToDashboard} onLogout={() => setRoute({ screen: 'auth', mode: 'login' })} />
+        )}
         {route.screen === 'community' && <CommunityScreen />}
       </View>
 
-      {route.screen !== 'auth' && (
+      {route.screen !== 'auth' && route.screen !== 'settings' && (
         <NavBar
           active={activeTab}
           onNavigate={(tab) => setRoute(tab === 'dashboard' ? { screen: 'dashboard' } : tab === 'community' ? { screen: 'community' } : { screen: 'smartnote' })}
