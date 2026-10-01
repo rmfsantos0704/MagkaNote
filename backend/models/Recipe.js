@@ -41,6 +41,23 @@ const RecipeSchema = new Schema(
       trim: true,
       maxlength: 120,
     },
+    // Optional metadata collected on the SmartNote "Compose" tab. All
+    // optional: a recipe is valid with just a title and ingredients.
+    category: { type: String, trim: true, maxlength: 40, default: null },
+    servings: { type: Number, min: 1, max: 100, default: null },
+    prep_time: { type: String, trim: true, maxlength: 40, default: null }, // free text, e.g. "45 min"
+    difficulty: { type: String, enum: ['Easy', 'Medium', 'Hard', null], default: null },
+    notes: { type: String, trim: true, maxlength: 2000, default: null },
+    // Photo of the finished dish, uploaded to Cloudinary from the client.
+    // See src/cloudinary.ts on the frontend for the unsigned upload flow.
+    image_url: { type: String, trim: true, default: null },
+    // Starred recipes stay pinned to the top of the dashboard.
+    is_favorite: { type: Boolean, default: false, index: true },
+    // The PSGC city/municipality this recipe was priced against, so
+    // reopening it for editing can reload the same location instead of
+    // asking again. Still just a starting point — editable like everything else.
+    location_psgc_code: { type: String, trim: true, default: null },
+    location_name: { type: String, trim: true, default: null },
     items: {
       type: [RecipeItemSchema],
       default: [],
@@ -52,6 +69,13 @@ const RecipeSchema = new Schema(
       type: Number,
       default: 0,
       min: 0,
+    },
+    // The same recipe's cost if priced at supermarkets instead, computed
+    // alongside total_estimated_cost at save time. Powers the "save ₱X vs
+    // supermarket" line on the dashboard without an extra API call per card.
+    total_supermarket_cost: {
+      type: Number,
+      default: null,
     },
   },
   {

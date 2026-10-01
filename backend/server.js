@@ -22,11 +22,11 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
-// --- Route mounts (Phase 3 will fill these in) ---
+// --- Route mounts ---
 app.use('/api/items', require('./routes/items'));
 app.use('/api/prices', require('./routes/prices'));
 app.use('/api/recipes', require('./routes/recipes'));
-// app.use('/api/users', require('./routes/users'));
+app.use('/api/users', require('./routes/users'));
 
 // --- 404 fallback ---
 app.use((req, res) => {

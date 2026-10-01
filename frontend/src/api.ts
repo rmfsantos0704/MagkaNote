@@ -1,7 +1,18 @@
 import axios from 'axios';
 import Constants from 'expo-constants';
 import type { MeasurementUnit } from './constants';
-import type { Item, RecipeEstimate, SourceType } from './types';
+import type {
+  BarcodeLookupResult,
+  BarcodeNotFound,
+  DeviceUser,
+  Item,
+  PriceEstimateResponse,
+  RecipeDetail,
+  RecipeEstimate,
+  RecipeSummary,
+  SaveRecipePayload,
+  SourceType,
+} from './types';
 
 /**
  * Where is the backend?
@@ -65,4 +76,94 @@ export async function estimateRecipe(
 ): Promise<RecipeEstimate> {
   const { data } = await client.post<RecipeEstimate>('/recipes/estimate', payload, { signal });
   return data;
+}
+
+export async function ensureDeviceUser(deviceId: string): Promise<DeviceUser> {
+  const { data } = await client.post<DeviceUser>('/users/device', { device_id: deviceId });
+  return data;
+}
+
+export async function listRecipes(userId: string): Promise<RecipeSummary[]> {
+  const { data } = await client.get<{ count: number; recipes: RecipeSummary[] }>('/recipes', {
+    params: { user_id: userId },
+  });
+  return data.recipes;
+}
+
+export async function getRecipe(id: string): Promise<RecipeDetail> {
+  const { data } = await client.get<RecipeDetail>(`/recipes/${id}`);
+  return data;
+}
+
+export async function saveRecipe(
+  payload: SaveRecipePayload
+): Promise<{ recipe: RecipeDetail; estimate: RecipeEstimate }> {
+  const { data } = await client.post('/recipes', payload);
+  return data;
+}
+
+export async function updateRecipe(
+  id: string,
+  payload: SaveRecipePayload
+): Promise<{ recipe: RecipeDetail; estimate: RecipeEstimate }> {
+  const { data } = await client.put(`/recipes/${id}`, payload);
+  return data;
+}
+
+export async function deleteRecipe(id: string, userId: string): Promise<void> {
+  await client.delete(`/recipes/${id}`, { params: { user_id: userId } });
+}
+
+export interface PriceEstimateParams {
+  itemId: string;
+  locationCode: string;
+  unit?: string;
+  source?: SourceType;
+}
+
+/** Per-item price lookup (not the whole-recipe one) — used by the ingredient
+ * detail panel to show a Palengke vs Supermarket comparison. */
+export async function getItemPriceEstimate(
+  { itemId, locationCode, unit, source }: PriceEstimateParams,
+  signal?: AbortSignal
+): Promise<PriceEstimateResponse> {
+  const { data } = await client.get<PriceEstimateResponse>('/prices/estimate', {
+    params: { item_id: itemId, location_code: locationCode, unit, source },
+    signal,
+  });
+  return data;
+}
+
+/** Browsable ingredient list (no search text needed) — used to populate the
+ * Ingredients tab before the person types anything. */
+export async function listItems(
+  params: { category?: string; limit?: number } = {},
+  signal?: AbortSignal
+): Promise<Item[]> {
+  const { data } = await client.get<{ count: number; items: Item[] }>('/items', {
+    params,
+    signal,
+  });
+  return data.items;
+}
+
+/**
+ * Looks up a scanned EAN-13 barcode. Resolves with the found item, or with
+ * `{ source: 'not_found', ... }` rather than throwing — a missing barcode is
+ * an expected, normal outcome, not an error.
+ */
+export async function lookupBarcode(ean: string): Promise<BarcodeLookupResult | BarcodeNotFound> {
+  try {
+    const { data } = await client.get<BarcodeLookupResult>(`/items/barcode/${ean}`);
+    return data;
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.status === 404) {
+      return err.response.data as BarcodeNotFound;
+    }
+    throw err;
+  }
+}
+
+export async function toggleFavorite(id: string, userId: string, isFavorite: boolean): Promise<void> {
+  await client.patch(`/recipes/${id}/favorite`, { user_id: userId, is_favorite: isFavorite });
 }

@@ -8,6 +8,32 @@ const router = express.Router();
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// GET /api/items?category=Produce[&limit=30]
+// Browsable list, no search text required — this is what the SmartNote
+// Ingredients tab shows before the person types anything.
+router.get('/', async (req, res, next) => {
+  try {
+    const filter = {};
+    if (req.query.category) {
+      if (!CATEGORIES.includes(req.query.category)) {
+        return res.status(400).json({ error: `category must be one of: ${CATEGORIES.join(', ')}` });
+      }
+      filter.category = req.query.category;
+    }
+
+    const limit = Math.min(parseInt(req.query.limit, 10) || 30, 60);
+
+    const items = await Item.find(filter)
+      .select('default_name category image_url barcode_ean13 baseline_price baseline_unit')
+      .sort({ default_name: 1 })
+      .limit(limit);
+
+    res.json({ count: items.length, items });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/items/search?q=kamat[&category=Produce][&limit=20]
 // Used by the Smart Note ingredient search bar (partial, case-insensitive match)
 router.get('/search', async (req, res, next) => {

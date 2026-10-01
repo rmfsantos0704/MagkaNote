@@ -23,18 +23,29 @@ const UserSchema = new Schema(
       lowercase: true,
       match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email address'],
     },
-    // Anywhere in the Philippines, picked from the PSGC region/province/city cascade.
-    location_psgc_code: {
+    // Anonymous device identity, until real accounts/login exist. Generated
+    // client-side (see src/deviceUser.ts) and persisted locally; this lets us
+    // save and list recipes without a signup flow yet.
+    device_id: {
       type: String,
       required: true,
+      unique: true,
+      index: true,
+    },
+    // Anywhere in the Philippines, picked from the PSGC region/province/city cascade.
+    // Optional: a recipe's shopping location is chosen per-note, not tied to
+    // the account, so this is only set if/when we add a "home area" feature.
+    location_psgc_code: {
+      type: String,
       match: [PSGC_CODE_PATTERN, 'location_psgc_code must be a 9-digit PSGC code'],
+      default: null,
     },
     // Cached display string, e.g. "Cebu City, Cebu", so the UI never has to
     // re-look-up the PSGC hierarchy just to show where a user is from.
     location_name: {
       type: String,
-      required: true,
       trim: true,
+      default: null,
     },
     trust_score: {
       type: Number,
