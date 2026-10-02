@@ -7,6 +7,8 @@ import { applyDefaultFont, useAppFonts } from './fonts';
 import AuthScreen, { type AuthMode } from './screens/AuthScreen';
 import CommunityScreen from './screens/CommunityScreen';
 import DashboardScreen from './screens/DashboardScreen';
+import MarketDetailScreen from './screens/MarketdetailScreen';
+import MarketsScreen from './screens/MarketsScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import SmartNoteScreen from './screens/SmartNoteScreen';
 import type { CommunityRecipeCopy } from './communityCopies';
@@ -19,6 +21,8 @@ type Route =
   | { screen: 'auth'; mode: AuthMode }
   | { screen: 'dashboard' }
   | { screen: 'community' }
+  | { screen: 'markets' }
+  | { screen: 'marketDetail'; marketId: string }
   | { screen: 'settings' }
   | { screen: 'smartnote'; recipeId?: string; recipeTitle?: string; recipeNotes?: string; communityCopy?: CommunityRecipeCopy };
 
@@ -26,7 +30,8 @@ type Route =
  * App entry point: loads fonts, checks whether onboarding has already been
  * shown (persisted in AsyncStorage so it only appears once per install),
  * then renders onboarding or the account-entry screen. Guest access opens
- * the main app (Dashboard, Community, and SmartNote behind a bottom tab bar).
+ * the main app (Dashboard, Community, Markets, and SmartNote behind a bottom
+ * tab bar).
  *
  * Requires: npx expo install @react-native-async-storage/async-storage
  */
@@ -72,8 +77,17 @@ export default function AppRoot() {
     );
   }
 
-  const activeTab: NavTab = route.screen === 'community' ? 'community' : route.screen === 'dashboard' ? 'dashboard' : 'smartnote';
+  const activeTab: NavTab =
+    route.screen === 'community'
+      ? 'community'
+      : route.screen === 'dashboard'
+      ? 'dashboard'
+      : route.screen === 'markets' || route.screen === 'marketDetail'
+      ? 'markets'
+      : 'smartnote';
   const backToDashboard = () => setRoute({ screen: 'dashboard' });
+
+  const showNavBar = route.screen !== 'auth' && route.screen !== 'settings';
 
   return (
     <View style={styles.app}>
@@ -111,12 +125,28 @@ export default function AppRoot() {
           <SettingsScreen onBack={backToDashboard} onLogout={() => setRoute({ screen: 'auth', mode: 'login' })} />
         )}
         {route.screen === 'community' && <CommunityScreen />}
+        {route.screen === 'markets' && (
+          <MarketsScreen onOpenMarket={(marketId) => setRoute({ screen: 'marketDetail', marketId })} />
+        )}
+        {route.screen === 'marketDetail' && (
+          <MarketDetailScreen marketId={route.marketId} onBack={() => setRoute({ screen: 'markets' })} />
+        )}
       </View>
 
-      {route.screen !== 'auth' && route.screen !== 'settings' && (
+      {showNavBar && (
         <NavBar
           active={activeTab}
-          onNavigate={(tab) => setRoute(tab === 'dashboard' ? { screen: 'dashboard' } : tab === 'community' ? { screen: 'community' } : { screen: 'smartnote' })}
+          onNavigate={(tab) =>
+            setRoute(
+              tab === 'dashboard'
+                ? { screen: 'dashboard' }
+                : tab === 'community'
+                ? { screen: 'community' }
+                : tab === 'markets'
+                ? { screen: 'markets' }
+                : { screen: 'smartnote' }
+            )
+          }
         />
       )}
     </View>

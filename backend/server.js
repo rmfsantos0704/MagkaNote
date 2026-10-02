@@ -9,7 +9,7 @@ require('./models/User');
 require('./models/Item');
 require('./models/PriceReport');
 require('./models/Recipe');
-
+require('./models/Market');
 const app = express();
 
 // --- Core middleware ---
@@ -27,7 +27,7 @@ app.use('/api/items', require('./routes/items'));
 app.use('/api/prices', require('./routes/prices'));
 app.use('/api/recipes', require('./routes/recipes'));
 app.use('/api/users', require('./routes/users'));
-
+app.use('/api/markets', require('./routes/markets'));
 // --- 404 fallback ---
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });

@@ -6,6 +6,7 @@ import type {
   BarcodeNotFound,
   DeviceUser,
   Item,
+  Market,
   PriceEstimateResponse,
   RecipeDetail,
   RecipeEstimate,
@@ -172,4 +173,162 @@ export async function lookupBarcode(ean: string): Promise<BarcodeLookupResult | 
 
 export async function toggleFavorite(id: string, userId: string, isFavorite: boolean): Promise<void> {
   await client.patch(`/recipes/${id}/favorite`, { user_id: userId, is_favorite: isFavorite });
+}
+
+// --- Markets (Nearby Markets feature) ---
+
+export async function getMarket(id: string): Promise<Market> {
+  const { data } = await client.get<Market>(`/markets/${id}`);
+  return data;
+}
+
+export async function addMarket(payload: {
+  name: string;
+  type: 'palengke' | 'supermarket';
+  address?: string;
+  hours?: string;
+  latitude: number;
+  longitude: number;
+  location_code: string;
+  location_name?: string;
+  added_by?: string;
+}): Promise<Market> {
+  const { data } = await client.post<Market>('/markets', payload);
+  return data;
+}
+
+export interface PriceReportPayload {
+  item_id: string;
+  user_id: string;
+  price: number;
+  measurement_unit: MeasurementUnit;
+  location_psgc_code: string;
+  location_name: string;
+  outlet_name?: string | null;
+  source_type: SourceType | 'sari_sari_store';
+}
+
+/** Submits a crowdsourced price — the "+ Report a new price" form on Market Detail. */
+export async function submitPriceReport(payload: PriceReportPayload): Promise<void> {
+  await client.post('/prices', payload);
+}
+
+// In api.ts
+
+// 1. Fetch real-world data from OpenStreetMap
+export async function scanOSMMarkets(lat: number, lng: number, radiusKm: number = 5) {
+  // Convert radius to bounding box deltas (significantly faster on Overpass)
+  const latDelta = radiusKm / 111;
+  const lngDelta = radiusKm / (111 * Math.cos((lat * Math.PI) / 180));
+
+  const south = lat - latDelta;
+  const north = lat + latDelta;
+  const west = lng - lngDelta;
+  const east = lng + lngDelta;
+
+  const bbox = `${south},${west},${north},${east}`;
+
+  const query = `
+    [out:json][timeout:15];
+    (
+      node["shop"="supermarket"](${bbox});
+      way["shop"="supermarket"](${bbox});
+      node["amenity"="marketplace"](${bbox});
+      way["amenity"="marketplace"](${bbox});
+      node["shop"="department_store"](${bbox});
+      way["shop"="department_store"](${bbox});
+    );
+    out center;
+  `;
+
+  // Array of public Overpass mirrors to attempt in order
+  const mirrors = [
+    'https://lz4.overpass-api.de/api/interpreter',       // High-performance mirror
+    'https://overpass.kumi.systems/api/interpreter',      // Kumi Systems mirror
+    'https://overpass.openstreetmap.fr/api/interpreter', // French mirror
+    'https://overpass-api.de/api/interpreter',           // Main server
+  ];
+
+  for (const endpoint of mirrors) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'MagkaNoteApp/1.0',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `data=${encodeURIComponent(query)}`,
+      });
+
+      if (!response.ok) {
+        console.warn(`[OSM] Mirror ${endpoint} returned status ${response.status}. Retrying next...`);
+        continue;
+      }
+
+      const data = await response.json();
+
+      const items = data.elements
+        .map((el: any) => {
+          const latitude = el.lat ?? el.center?.lat;
+          const longitude = el.lon ?? el.center?.lon;
+          const storeName = el.tags?.name || el.tags?.brand || el.tags?.operator;
+
+          if (!latitude || !longitude || !storeName) return null;
+
+          return {
+            name: storeName.trim(),
+            type: el.tags?.shop === 'supermarket' || el.tags?.shop === 'department_store' ? 'supermarket' : 'palengke',
+            latitude,
+            longitude,
+          };
+        })
+        .filter(Boolean);
+
+      console.log(`[OSM Scan Success] Found ${items.length} markets via ${endpoint}`);
+      return items;
+    } catch (err) {
+      console.warn(`[OSM Network Fail] Could not reach ${endpoint}. Retrying next...`);
+    }
+  }
+
+  throw new Error('All map servers are currently busy. Please try scanning again in a few moments.');
+}
+const API_BASE_URL = 'http://192.168.1.49:5000/api'; 
+
+// 2. Fetch nearby markets (Matches GET /api/markets/nearby?lat=...&lng=...)
+export async function listNearbyMarkets(params: { latitude: number; longitude: number; radiusKm?: number }, signal?: AbortSignal) {
+  const { latitude, longitude, radiusKm = 5 } = params;
+  
+  // Note: Your backend uses ?lat= and ?lng=, so we format the query string to match
+  const url = `${API_BASE_URL}/markets/nearby?lat=${latitude}&lng=${longitude}&radius_km=${radiusKm}`;
+  
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error('Failed to fetch markets');
+  
+  const data = await response.json();
+  return data.markets; // Your backend returns { count, markets: [...] }
+}
+
+// 3. Save scanned market (Matches POST /api/markets)
+export async function createMarket(marketData: {
+  name: string;
+  type: 'supermarket' | 'palengke';
+  latitude: number;
+  longitude: number;
+  location_code: string;
+  location_name: string;
+}) {
+  const response = await fetch(`${API_BASE_URL}/markets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(marketData),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to save market (${response.status}): ${errText}`);
+  }
+
+  return response.json();
 }

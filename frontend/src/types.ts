@@ -90,9 +90,10 @@ export interface RecipeDetail {
   location_psgc_code: string | null;
   location_name: string | null;
   outlet_name?: string | null;
-  steps: string[];
   items: RecipeItemDetail[];
   total_estimated_cost: number;
+  // Ordered cooking instructions. See components/StepsEditor.tsx.
+  steps: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -110,9 +111,9 @@ export interface SaveRecipePayload {
   prep_time?: string | null;
   difficulty?: Difficulty | null;
   notes?: string | null;
-  steps?: string[];
   image_url?: string | null;
   supermarket_total?: number | null;
+  steps?: string[];
 }
 
 export interface DeviceUser {
@@ -152,4 +153,19 @@ export interface BarcodeNotFound {
   barcode_ean13: string;
   external_lookup_failed: boolean;
   message: string;
+}
+
+/** A real, geolocated place to shop — see models/Market.js. */
+export interface Market {
+  _id: string;
+  name: string;
+  type: 'palengke' | 'supermarket';
+  address: string | null;
+  hours: string | null;
+  location_psgc_code: string;
+  location_name: string | null;
+  latitude: number;
+  longitude: number;
+  /** Only present on results from GET /api/markets/nearby. */
+  distance_km?: number;
 }
