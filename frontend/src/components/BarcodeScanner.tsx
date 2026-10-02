@@ -20,6 +20,9 @@ interface Props {
 export function BarcodeScanner({ visible, onClose, onScanned }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const [locked, setLocked] = useState(false); // debounce: one scan per open
+  const [modalShown, setModalShown] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
   const handleScan = ({ data }: { data: string }) => {
     if (locked) return;
@@ -29,11 +32,18 @@ export function BarcodeScanner({ visible, onClose, onScanned }: Props) {
 
   // Reset the lock each time the scanner is (re)opened
   React.useEffect(() => {
-    if (visible) setLocked(false);
+    if (visible) {
+      setLocked(false);
+      setModalShown(false);
+      setCameraReady(false);
+      setCameraError(null);
+    } else {
+      setModalShown(false);
+    }
   }, [visible]);
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose} onShow={() => setModalShown(true)}>
       <View style={styles.root}>
         {!permission ? (
           <View style={styles.center} />
@@ -50,17 +60,21 @@ export function BarcodeScanner({ visible, onClose, onScanned }: Props) {
               <Text style={styles.cancelLinkText}>Cancel</Text>
             </Pressable>
           </SafeAreaView>
-        ) : (
+        ) : visible && modalShown ? (
           <>
             <CameraView
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               facing="back"
               barcodeScannerSettings={{ barcodeTypes: ['ean13'] }}
               onBarcodeScanned={handleScan}
+              onCameraReady={() => setCameraReady(true)}
+              onMountError={({ message }) => setCameraError(message)}
             />
             <View style={styles.overlay} pointerEvents="none">
               <View style={styles.frame} />
-              <Text style={styles.hint}>Line up the barcode inside the frame</Text>
+              <Text style={styles.hint}>
+                {cameraError ?? (cameraReady ? 'Line up the barcode inside the frame' : 'Starting camera…')}
+              </Text>
             </View>
             <SafeAreaView edges={['top']} style={styles.topBar}>
               <Pressable onPress={onClose} style={styles.closeButton}>
@@ -68,6 +82,8 @@ export function BarcodeScanner({ visible, onClose, onScanned }: Props) {
               </Pressable>
             </SafeAreaView>
           </>
+        ) : (
+          <View style={styles.center} />
         )}
       </View>
     </Modal>
