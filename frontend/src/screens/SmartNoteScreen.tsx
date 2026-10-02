@@ -31,6 +31,7 @@ import {
 import { BarcodeScanner } from '../components/BarcodeScanner';
 import { ConfirmAddModal } from '../components/ConfirmAddModal';
 import { LocationPicker } from '../components/LocationPicker';
+import { ScannedPriceModal } from '../components/ScannedPriceModal';
 import { StepsEditor } from '../components/StepsEditor';
 import { Tag } from '../components/Tag';
 import { Thumbnail } from '../components/Thumbnail';
@@ -744,6 +745,12 @@ function SearchTab({ location, outletName, addedIds, onAdd }: SearchProps) {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scanBusy, setScanBusy] = useState(false);
   const [scanConfirm, setScanConfirm] = useState<Item | null>(null);
+  const [scanPriceEstimates, setScanPriceEstimates] = useState<{
+    loading: boolean;
+    palengke: number | null;
+    supermarket: number | null;
+  } | null>(null);
+  const [priceReportItem, setPriceReportItem] = useState<Item | null>(null);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
 
   const debounced = useDebounce(query.trim(), 300);
@@ -778,15 +785,44 @@ function SearchTab({ location, outletName, addedIds, onAdd }: SearchProps) {
   );
 
   const handleScanned = async (code: string) => {
+    if (!location) return;
     setScanBusy(true);
     setScanMessage(null);
     try {
       const result = await lookupBarcode(code);
       setScannerOpen(false);
       if (result.source === 'not_found') {
+        setScanPriceEstimates(null);
         setScanMessage(`No product found for that barcode. Try searching "${code}" by name instead, or add it manually.`);
       } else {
         setScanConfirm(result.item);
+        setScanPriceEstimates({ loading: true, palengke: null, supermarket: null });
+        Promise.all([
+          getItemPriceEstimate({
+            itemId: result.item._id,
+            locationCode: location.code,
+            outletName: outletName.trim() || undefined,
+            unit: result.item.baseline_unit,
+            source: 'palengke',
+          }),
+          getItemPriceEstimate({
+            itemId: result.item._id,
+            locationCode: location.code,
+            outletName: outletName.trim() || undefined,
+            unit: result.item.baseline_unit,
+            source: 'supermarket',
+          }),
+        ])
+          .then(([palengke, supermarket]) => {
+            const palengkeRow = palengke.estimates.find((row) => row.unit === result.item.baseline_unit);
+            const supermarketRow = supermarket.estimates.find((row) => row.unit === result.item.baseline_unit);
+            setScanPriceEstimates({
+              loading: false,
+              palengke: palengkeRow?.average_price ?? null,
+              supermarket: supermarketRow?.average_price ?? null,
+            });
+          })
+          .catch(() => setScanPriceEstimates({ loading: false, palengke: null, supermarket: null }));
       }
     } catch (err) {
       setScannerOpen(false);
@@ -890,11 +926,24 @@ function SearchTab({ location, outletName, addedIds, onAdd }: SearchProps) {
       <ConfirmAddModal
         visible={!!scanConfirm}
         item={scanConfirm}
+        priceEstimates={scanPriceEstimates ?? undefined}
         onCancel={() => setScanConfirm(null)}
+        onReportPrice={() => {
+          if (scanConfirm) setPriceReportItem(scanConfirm);
+          setScanConfirm(null);
+        }}
         onConfirm={() => {
           if (scanConfirm) onAdd(scanConfirm);
           setScanConfirm(null);
         }}
+      />
+      <ScannedPriceModal
+        visible={!!priceReportItem}
+        item={priceReportItem}
+        location={location}
+        outletName={outletName}
+        onClose={() => setPriceReportItem(null)}
+        onSubmitted={() => setPriceReportItem(null)}
       />
       {scanBusy && (
         <View style={styles.scanBusyOverlay}>
