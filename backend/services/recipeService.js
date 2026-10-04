@@ -10,7 +10,27 @@ const { getPriceEstimate } = require('./pricingService');
  */
 async function estimateRecipe({ items, locationCode, source, outletName }) {
   const lines = await Promise.all(
-    items.map(async ({ item_id, quantity, measurement_unit }) => {
+    items.map(async (line) => {
+      const { item_id, quantity, measurement_unit } = line;
+      const base = { item_id, quantity, measurement_unit };
+
+      if (source === 'palengke') {
+        const unitPrice = manualPurchaseUnitPrice(line, measurement_unit);
+        if (unitPrice !== null) {
+          const cost = round2(unitPrice * quantity);
+          return {
+            ...base,
+            priced: true,
+            origin: 'purchase',
+            confidence: 'high',
+            unit_price: unitPrice,
+            cost,
+            cost_low: cost,
+            cost_high: cost,
+          };
+        }
+      }
+
       const result = await getPriceEstimate({
         itemId: item_id,
         locationCode,
@@ -18,8 +38,6 @@ async function estimateRecipe({ items, locationCode, source, outletName }) {
         sourceType: source,
         outletName,
       });
-
-      const base = { item_id, quantity, measurement_unit };
 
       if (!result) return { ...base, priced: false, reason: 'item_not_found' };
 
@@ -61,7 +79,22 @@ async function estimateRecipe({ items, locationCode, source, outletName }) {
   };
 }
 
+function manualPurchaseUnitPrice(line, measurementUnit) {
+  if (line.purchase_price == null) return null;
+  const price = Number(line.purchase_price);
+  if (!Number.isFinite(price) || price < 0) return null;
+
+  let purchaseQuantity = Number(line.purchase_quantity);
+  if (!(purchaseQuantity > 0)) {
+    const grams = Number(line.purchase_weight_grams);
+    if (grams > 0 && measurementUnit === 'kilo') purchaseQuantity = grams / 1000;
+    else if (grams > 0 && measurementUnit === 'gramo') purchaseQuantity = grams;
+  }
+
+  return price / (purchaseQuantity > 0 ? purchaseQuantity : 1);
+}
+
 const sum = (arr, key) => arr.reduce((acc, x) => acc + x[key], 0);
 const round2 = (n) => Math.round(n * 100) / 100;
 
-module.exports = { estimateRecipe };
+module.exports = { estimateRecipe, manualPurchaseUnitPrice };

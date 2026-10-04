@@ -10,6 +10,10 @@ require('./models/Item');
 require('./models/PriceReport');
 require('./models/Recipe');
 require('./models/Market');
+require('./models/GroceryList');
+require('./models/RecipeRating');
+require('./models/ModerationReport');
+require('./models/Notification');
 const app = express();
 
 // --- Core middleware ---
@@ -28,6 +32,10 @@ app.use('/api/prices', require('./routes/prices'));
 app.use('/api/recipes', require('./routes/recipes'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/markets', require('./routes/markets'));
+app.use('/api/grocery-list', require('./routes/grocery'));
+app.use('/api/community', require('./routes/community'));
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/insights', require('./routes/insights'));
 // --- 404 fallback ---
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });

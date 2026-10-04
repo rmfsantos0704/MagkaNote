@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Animated,
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   ImageBackground,
@@ -16,7 +17,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { describeError, getRecipe, listRecipes, toggleFavorite } from '../api';
+import { Feather } from '@expo/vector-icons';
+import { describeError, getRecipe, listRecipes, setRecipeShared, toggleFavorite } from '../api';
 import { RecipeThumb } from '../components/RecipeThumb';
 import { Tag } from '../components/Tag';
 import { getDeviceUser } from '../deviceUser';
@@ -29,6 +31,9 @@ interface Props {
   onNew: () => void;
   onEditRecipe: (id: string, title: string, notes?: string, copy?: CommunityRecipeCopy) => void;
   onOpenSettings: () => void;
+  onOpenGroceryList: () => void;
+  onOpenNotifications: () => void;
+  onOpenSavings: () => void;
 }
 
 interface RecipeFrame {
@@ -53,7 +58,7 @@ function sortRecipes(list: RecipeSummary[]): RecipeSummary[] {
   });
 }
 
-export default function DashboardScreen({ onNew, onEditRecipe, onOpenSettings }: Props) {
+export default function DashboardScreen({ onNew, onEditRecipe, onOpenSettings, onOpenGroceryList, onOpenNotifications, onOpenSavings }: Props) {
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const [recipes, setRecipes] = useState<RecipeSummary[] | null>(null);
   const [communityCopies, setCommunityCopies] = useState<CommunityRecipeCopy[]>([]);
@@ -65,6 +70,7 @@ export default function DashboardScreen({ onNew, onEditRecipe, onOpenSettings }:
   const [recipeDetail, setRecipeDetail] = useState<RecipeDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [origin, setOrigin] = useState<RecipeFrame>({ x: 0, y: 0, width: 1, height: 1 });
   const cardRefs = React.useRef<Record<string, View | null>>({});
@@ -172,6 +178,20 @@ export default function DashboardScreen({ onNew, onEditRecipe, onOpenSettings }:
     }
   };
 
+  const handleToggleShare = async () => {
+    if (!selectedRecipe || selectedRecipe._id.startsWith('community-copy:')) return;
+    const next = !selectedRecipe.is_public;
+    setSharing(true);
+    try {
+      const user = await getDeviceUser();
+      await setRecipeShared(selectedRecipe._id, user._id, next);
+      setSelectedRecipe((current) => current ? { ...current, is_public: next } : current);
+      setRecipes((current) => current?.map((recipe) => recipe._id === selectedRecipe._id ? { ...recipe, is_public: next } : recipe) ?? current);
+    } catch (err) {
+      Alert.alert('Could not update sharing', describeError(err));
+    } finally { setSharing(false); }
+  };
+
   const categories = useMemo(() => {
     if (!recipes) return ['All'];
     const found = Array.from(new Set(recipes.map((r) => r.category).filter(Boolean))) as string[];
@@ -188,19 +208,13 @@ export default function DashboardScreen({ onNew, onEditRecipe, onOpenSettings }:
     );
   }, [recipes, search, category]);
 
-  const stats = useMemo(() => {
-    const list = recipes ?? [];
-    const totalCost = list.reduce((sum, r) => sum + r.total_estimated_cost, 0);
-    const totalItems = list.reduce((sum, r) => sum + r.item_count, 0);
-    return { count: list.length, totalCost, totalItems };
-  }, [recipes]);
-
   const detailIngredients = selectedCopy?.ingredients ?? recipeDetail?.items
     .filter((line) => line.item_id)
     .map((line) => ({
       name: line.item_id.default_name,
       amount: `${line.quantity} ${line.measurement_unit}`,
     })) ?? [];
+  const detailSteps = selectedCopy?.steps ?? recipeDetail?.steps ?? [];
 
   return (
     <View style={styles.root}>
@@ -211,15 +225,19 @@ export default function DashboardScreen({ onNew, onEditRecipe, onOpenSettings }:
             <Text style={styles.eyebrow}>{greeting()}</Text>
             <Text style={styles.heading}>My Recipes</Text>
           </View>
-          <Pressable onPress={onOpenSettings} style={styles.avatar} accessibilityRole="button" accessibilityLabel="Open settings">
-            <Text style={{ fontSize: 16 }}>🥘</Text>
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable onPress={onOpenNotifications} style={styles.headerIconButton} accessibilityRole="button" accessibilityLabel="Open notifications">
+              <Feather name="bell" size={18} color={colors.cream} />
+            </Pressable>
+            <Pressable onPress={onOpenSettings} style={styles.headerIconButton} accessibilityRole="button" accessibilityLabel="Open settings">
+              <Feather name="settings" size={18} color={colors.cream} />
+            </Pressable>
+          </View>
         </View>
 
-        <View style={styles.statRow}>
-          <StatCard value={String(stats.count)} label="Recipes" color={colors.cream} />
-          <StatCard value={peso(stats.totalCost)} label="Total Est." color={colors.green} />
-          <StatCard value={String(stats.totalItems)} label="Ingredients" color={colors.accent} />
+        <View style={styles.quickActions}>
+          <QuickAction label="Grocery List" onPress={onOpenGroceryList} />
+          <QuickAction label="Savings" onPress={onOpenSavings} />
         </View>
 
         <View style={styles.searchWrap}>
@@ -364,11 +382,11 @@ export default function DashboardScreen({ onNew, onEditRecipe, onOpenSettings }:
                       <Text style={styles.detailStatusText}>No ingredients have been added yet.</Text>
                     )}
 
-                    {!!selectedCopy?.steps?.length && (
+                    {!!detailSteps.length && (
                       <>
                         <Text style={styles.detailSectionTitle}>Method</Text>
                         <View style={styles.stepsList}>
-                          {selectedCopy.steps.map((step, index) => (
+                          {detailSteps.map((step, index) => (
                             <View key={`${index}-${step}`} style={styles.stepRow}>
                               <View style={styles.stepNumber}><Text style={styles.stepNumberText}>{index + 1}</Text></View>
                               <Text style={styles.stepText}>{step}</Text>
@@ -389,6 +407,9 @@ export default function DashboardScreen({ onNew, onEditRecipe, onOpenSettings }:
               </ScrollView>
 
               <View style={styles.detailFooter}>
+                <Pressable onPress={handleToggleShare} disabled={sharing || selectedRecipe._id.startsWith('community-copy:')} style={styles.shareButton} accessibilityRole="button">
+                  <Text style={styles.shareButtonText}>{sharing ? 'Updating…' : selectedRecipe.is_public ? 'Unshare' : 'Share to Community'}</Text>
+                </Pressable>
                 <Pressable onPress={editSelectedRecipe} style={styles.editButton} accessibilityRole="button">
                   <Text style={styles.editButtonText}>Edit Recipe</Text>
                 </Pressable>
@@ -471,15 +492,8 @@ function RecipeCard({
   );
 }
 
-function StatCard({ value, label, color }: { value: string; label: string; color: string }) {
-  return (
-    <View style={styles.statCard}>
-      <Text style={[styles.statValue, { color }]} numberOfLines={1}>
-        {value}
-      </Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
+function QuickAction({ label, onPress }: { label: string; onPress: () => void }) {
+  return <Pressable onPress={onPress} style={styles.quickAction}><Text style={styles.quickActionText}>{label}</Text></Pressable>;
 }
 
 const CARD_GAP = 12;
@@ -497,35 +511,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   heading: { fontFamily: fonts.display, fontSize: 24, color: colors.cream, marginTop: 3 },
-  avatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: colors.accentMuted,
-    borderWidth: 1.5,
-    borderColor: colors.accentBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
-  statCard: {
-    flex: 1,
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  statValue: { fontFamily: fonts.display, fontSize: 16 },
-  statLabel: {
-    fontSize: 9,
-    fontFamily: fonts.body,
-    color: colors.muted,
-    marginTop: 3,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerIconButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  quickActions: { flexDirection: 'row', gap: 7, marginBottom: 12 },
+  quickAction: { flex: 1, minHeight: 36, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.faint, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 3 },
+  quickActionText: { color: colors.muted, fontFamily: fonts.bodyMedium, fontSize: 10, textAlign: 'center' },
   searchWrap: { position: 'relative', justifyContent: 'center', marginBottom: 10 },
   searchIcon: {
     position: 'absolute',
@@ -651,8 +641,10 @@ const styles = StyleSheet.create({
   detailStatus: { alignItems: 'center', gap: 10, paddingVertical: 32 },
   detailStatusText: { color: colors.muted, fontSize: 12, lineHeight: 18 },
   detailError: { color: colors.red, fontSize: 12, lineHeight: 18, paddingVertical: 20 },
-  detailFooter: { paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface },
-  editButton: { minHeight: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: colors.accent },
+  detailFooter: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface },
+  shareButton: { flex: 1, minHeight: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: colors.greenMuted, borderWidth: 1, borderColor: colors.greenBorder },
+  shareButtonText: { color: colors.green, fontFamily: fonts.bodySemibold, fontSize: 12 },
+  editButton: { flex: 1, minHeight: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: colors.accent },
   editButtonText: { color: colors.onAccent, fontFamily: fonts.bodySemibold, fontSize: 13 },
 
   fab: {

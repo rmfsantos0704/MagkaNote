@@ -4,7 +4,10 @@ import type { MeasurementUnit } from './constants';
 import type {
   BarcodeLookupResult,
   BarcodeNotFound,
+  AppNotification,
+  CommunityRecipe,
   DeviceUser,
+  GroceryList,
   Item,
   Market,
   PriceEstimateResponse,
@@ -12,6 +15,7 @@ import type {
   RecipeEstimate,
   RecipeSummary,
   SaveRecipePayload,
+  SavingsSummary,
   SourceType,
 } from './types';
 
@@ -73,7 +77,15 @@ export interface EstimatePayload {
   /** Exact store or market name; omitted to use city-wide averages. */
   outlet_name?: string;
   source: SourceType;
-  items: { item_id: string; quantity: number; measurement_unit: MeasurementUnit }[];
+  items: {
+    item_id: string;
+    quantity: number;
+    measurement_unit: MeasurementUnit;
+    purchase_outlet?: string | null;
+    purchase_price?: number | null;
+    purchase_weight_grams?: number | null;
+    purchase_quantity?: number | null;
+  }[];
 }
 
 export async function estimateRecipe(
@@ -173,6 +185,76 @@ export async function lookupBarcode(ean: string): Promise<BarcodeLookupResult | 
 
 export async function toggleFavorite(id: string, userId: string, isFavorite: boolean): Promise<void> {
   await client.patch(`/recipes/${id}/favorite`, { user_id: userId, is_favorite: isFavorite });
+}
+
+export async function setRecipeShared(id: string, userId: string, isPublic: boolean): Promise<void> {
+  await client.patch(`/recipes/${id}/share`, { user_id: userId, is_public: isPublic });
+}
+
+export async function listCommunityRecipes(search?: string): Promise<CommunityRecipe[]> {
+  const { data } = await client.get<{ recipes: CommunityRecipe[] }>('/community/recipes', { params: search ? { search } : {} });
+  return data.recipes;
+}
+
+export async function copyCommunityRecipe(recipeId: string, userId: string): Promise<void> {
+  await client.post(`/community/recipes/${recipeId}/copy`, { user_id: userId });
+}
+
+export async function rateCommunityRecipe(recipeId: string, payload: { user_id: string; rating: number; feedback?: string }): Promise<{ rating_average: number; rating_count: number }> {
+  const { data } = await client.post(`/community/recipes/${recipeId}/ratings`, payload);
+  return data;
+}
+
+export async function getCommunityRecipeRatings(recipeId: string): Promise<{ _id: string; username: string; rating: number; feedback: string; created_at: string }[]> {
+  const { data } = await client.get<{ ratings: { _id: string; username: string; rating: number; feedback: string; created_at: string }[] }>(`/community/recipes/${recipeId}/ratings`);
+  return data.ratings;
+}
+
+export async function reportCommunityContent(payload: { reporter_user_id: string; target_type: 'recipe' | 'user'; target_id: string; reason: string; details?: string }): Promise<void> {
+  await client.post('/community/reports', payload);
+}
+
+export async function getGroceryList(userId: string): Promise<GroceryList> {
+  const { data } = await client.get<GroceryList>('/grocery-list', { params: { user_id: userId } });
+  return data;
+}
+
+export async function addRecipesToGroceryList(userId: string, recipeIds: string[]): Promise<GroceryList> {
+  const { data } = await client.post<GroceryList>('/grocery-list/from-recipes', { user_id: userId, recipe_ids: recipeIds });
+  return data;
+}
+
+export async function setGroceryItemChecked(entryId: string, userId: string, checked: boolean): Promise<GroceryList> {
+  const { data } = await client.patch<GroceryList>(`/grocery-list/items/${entryId}`, { user_id: userId, checked });
+  return data;
+}
+
+export async function deleteGroceryItem(entryId: string, userId: string): Promise<GroceryList> {
+  const { data } = await client.delete<GroceryList>(`/grocery-list/items/${entryId}`, { params: { user_id: userId } });
+  return data;
+}
+
+export async function clearGroceryList(userId: string): Promise<GroceryList> {
+  const { data } = await client.delete<GroceryList>('/grocery-list', { params: { user_id: userId } });
+  return data;
+}
+
+export async function getAppNotifications(userId: string): Promise<{ notifications: AppNotification[]; unread_count: number }> {
+  const { data } = await client.get('/notifications', { params: { user_id: userId } });
+  return data;
+}
+
+export async function markNotificationRead(id: string, userId: string): Promise<void> {
+  await client.patch(`/notifications/${id}/read`, { user_id: userId });
+}
+
+export async function markAllNotificationsRead(userId: string): Promise<void> {
+  await client.patch('/notifications/read-all', { user_id: userId });
+}
+
+export async function getSavingsSummary(userId: string): Promise<SavingsSummary> {
+  const { data } = await client.get<SavingsSummary>('/insights/savings', { params: { user_id: userId } });
+  return data;
 }
 
 // --- Markets (Nearby Markets feature) ---

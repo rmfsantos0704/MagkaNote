@@ -30,7 +30,7 @@ import {
 } from '../api';
 import { BarcodeScanner } from '../components/BarcodeScanner';
 import { ConfirmAddModal } from '../components/ConfirmAddModal';
-import { LocationPicker } from '../components/LocationPicker';
+import { PurchaseDetailsModal, type PurchaseDetails } from '../components/PurchaseDetailsModal';
 import { ScannedPriceModal } from '../components/ScannedPriceModal';
 import { StepsEditor } from '../components/StepsEditor';
 import { Tag } from '../components/Tag';
@@ -108,9 +108,25 @@ function importedQuantity(amount: string, unit: Item['baseline_unit']): number {
   return defaultQtyFor(unit);
 }
 
-interface AddedIngredient {
+interface AddedIngredient extends PurchaseDetails {
   item: Item;
   quantity: number;
+}
+
+function manualPurchaseCost(entry: AddedIngredient): number | null {
+  if (!entry.purchase_price.trim()) return null;
+  const price = Number(entry.purchase_price);
+  if (!Number.isFinite(price) || price < 0) return null;
+
+  let purchaseQuantity = Number(entry.purchase_quantity);
+  if (!(purchaseQuantity > 0)) {
+    const grams = Number(entry.purchase_weight_grams);
+    if (grams > 0 && entry.item.baseline_unit === 'kilo') purchaseQuantity = grams / 1000;
+    else if (grams > 0 && entry.item.baseline_unit === 'gramo') purchaseQuantity = grams;
+  }
+
+  const cost = (price / (purchaseQuantity > 0 ? purchaseQuantity : 1)) * entry.quantity;
+  return Math.round(cost * 100) / 100;
 }
 
 type Tab = 'compose' | 'search' | 'basket';
@@ -135,9 +151,8 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
   const [servings, setServings] = useState(communityCopy?.servings ? String(communityCopy.servings) : '');
   const [prepTime, setPrepTime] = useState(communityCopy?.prepTime ?? '');
   const [difficulty, setDifficulty] = useState<Difficulty | null>(communityCopy?.difficulty ?? null);
+  const [isPublic, setIsPublic] = useState(false);
   const [location, setLocation] = useState<Location | null>(null);
-  const [outletName, setOutletName] = useState('');
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [photoUrl, setPhotoUrl] = useState<string | null>(communityCopy?.image ?? null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -152,6 +167,7 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [copyImportNotice, setCopyImportNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [purchaseModalId, setPurchaseModalId] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -170,18 +186,20 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
         setServings(r.servings != null ? String(r.servings) : '');
         setPrepTime(r.prep_time ?? '');
         setDifficulty(r.difficulty ?? null);
+        setIsPublic(r.is_public ?? false);
         setPhotoUrl(r.image_url ?? null);
-        setOutletName(r.outlet_name ?? '');
         setSteps(r.steps ?? []);
-        if (r.location_psgc_code && r.location_name) {
-          setLocation({ code: r.location_psgc_code, name: r.location_name });
-        } else {
-          setLocation(null);
-        }
         setAdded(
           (r.items ?? [])
             .filter((line) => line.item_id) // a deleted Item would populate as null
-            .map((line) => ({ item: line.item_id, quantity: line.quantity }))
+            .map((line) => ({
+              item: line.item_id,
+              quantity: line.quantity,
+              purchase_outlet: line.purchase_outlet ?? '',
+              purchase_price: line.purchase_price == null ? '' : String(line.purchase_price),
+              purchase_weight_grams: line.purchase_weight_grams == null ? '' : String(line.purchase_weight_grams),
+              purchase_quantity: line.purchase_quantity == null ? '' : String(line.purchase_quantity),
+            }))
         );
       } catch (err) {
         if (!cancelled) setLoadError(describeError(err));
@@ -202,7 +220,14 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
         if (cancelled) return;
         const imported = communityCopy.ingredients!.flatMap((ingredient) => {
           const item = findCommunityIngredient(ingredient.name, catalog);
-          return item ? [{ item, quantity: importedQuantity(ingredient.amount, item.baseline_unit) }] : [];
+          return item ? [{
+            item,
+            quantity: importedQuantity(ingredient.amount, item.baseline_unit),
+            purchase_outlet: '',
+            purchase_price: '',
+            purchase_weight_grams: '',
+            purchase_quantity: '',
+          }] : [];
         });
         const matchedNames = new Set(imported.map((entry) => normalizeIngredientName(entry.item.default_name)));
         const unmatched = communityCopy.ingredients!.filter((ingredient) => {
@@ -221,7 +246,6 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
   }, [recipeId, communityCopy?.id]);
 
   useEffect(() => {
-    if (recipeId || communityCopy) return;
     let cancelled = false;
     (async () => {
       try {
@@ -229,21 +253,12 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
         const settings = await getUserSettings(user._id);
         if (cancelled) return;
         setLocation(settings.preferences.location);
-        const preferredMarket = settings.preferences.market.trim();
-        setOutletName(preferredMarket.toLowerCase() === 'any nearby market' ? '' : preferredMarket);
       } catch {
-        // New recipes remain usable when settings are unavailable.
+        // Recipe price estimates remain unavailable when settings cannot load.
       }
     })();
     return () => { cancelled = true; };
-  }, [recipeId, communityCopy]);
-
-  // If a new note has no location yet, prompt for one as soon as it's needed
-  useEffect(() => {
-    if (!loadingInitial && !location && (tab === 'search' || tab === 'basket')) {
-      setPickerOpen(true);
-    }
-  }, [tab, location, loadingInitial]);
+  }, []);
 
   // --- Live whole-recipe estimate (palengke = the recipe's real total; supermarket = comparison) ---
   const [palengkeEstimate, setPalengkeEstimate] = useState<RecipeEstimate | null>(null);
@@ -263,11 +278,15 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
         item_id: a.item._id,
         quantity: a.quantity,
         measurement_unit: a.item.baseline_unit,
+        purchase_outlet: a.purchase_outlet.trim() || null,
+        purchase_price: a.purchase_price.trim() ? Number(a.purchase_price) : null,
+        purchase_weight_grams: a.purchase_weight_grams.trim() ? Number(a.purchase_weight_grams) : null,
+        purchase_quantity: a.purchase_quantity.trim() ? Number(a.purchase_quantity) : null,
       }));
       try {
         const [pal, sm] = await Promise.all([
-          estimateRecipe({ location_code: location.code, outlet_name: outletName.trim() || undefined, source: 'palengke', items }, controller.signal),
-          estimateRecipe({ location_code: location.code, outlet_name: outletName.trim() || undefined, source: 'supermarket', items }, controller.signal),
+          estimateRecipe({ location_code: location.code, source: 'palengke', items }, controller.signal),
+          estimateRecipe({ location_code: location.code, source: 'supermarket', items }, controller.signal),
         ]);
         setPalengkeEstimate(pal);
         setSupermarketEstimate(sm);
@@ -283,20 +302,33 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
       clearTimeout(timer);
       controller.abort();
     };
-  }, [added, location, outletName]);
+  }, [added, location]);
 
-  const palengkeTotal = palengkeEstimate?.total.estimated ?? 0;
+  const palengkeTotal = Math.round(added.reduce((total, entry) => {
+    const manualCost = manualPurchaseCost(entry);
+    if (manualCost !== null) return total + manualCost;
+    const line = palengkeEstimate?.lines.find((estimateLine) => estimateLine.item_id === entry.item._id);
+    return total + (line?.priced ? line.cost ?? 0 : 0);
+  }, 0) * 100) / 100;
   const supermarketTotal = supermarketEstimate?.total.estimated ?? 0;
   const savings = Math.max(0, supermarketTotal - palengkeTotal);
 
   // --- Basket actions ---
   const addIngredient = (item: Item) => {
+    setPurchaseModalId(item._id);
     setAdded((prev) => {
       const existing = prev.find((a) => a.item._id === item._id);
       if (existing) {
         return prev.map((a) => (a.item._id === item._id ? { ...a, quantity: a.quantity + 1 } : a));
       }
-      return [...prev, { item, quantity: 1 }];
+      return [...prev, {
+        item,
+        quantity: 1,
+        purchase_outlet: '',
+        purchase_price: '',
+        purchase_weight_grams: '',
+        purchase_quantity: '',
+      }];
     });
   };
   const removeIngredient = (id: string) => setAdded((prev) => prev.filter((a) => a.item._id !== id));
@@ -304,7 +336,6 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
     setAdded((prev) =>
       prev.map((a) => (a.item._id === id ? { ...a, quantity: Math.max(1, a.quantity + delta) } : a))
     );
-
   // --- Recipe photo ---
   const pickAndUploadPhoto = async (source: 'camera' | 'library') => {
     setPhotoError(null);
@@ -359,7 +390,7 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
       return;
     }
     if (!location) {
-      setPickerOpen(true);
+      setSaveError('Set your shopping city or municipality in Settings before saving a recipe.');
       return;
     }
     if (added.length === 0) {
@@ -377,12 +408,16 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
         title: title.trim(),
         location_code: location.code,
         location_name: location.name,
-        outlet_name: outletName.trim() || null,
+        outlet_name: null,
         source: 'palengke' as const,
         items: added.map((a) => ({
           item_id: a.item._id,
           quantity: a.quantity,
           measurement_unit: a.item.baseline_unit,
+          purchase_outlet: a.purchase_outlet.trim() || null,
+          purchase_price: a.purchase_price.trim() ? Number(a.purchase_price) : null,
+          purchase_weight_grams: a.purchase_weight_grams.trim() ? Number(a.purchase_weight_grams) : null,
+          purchase_quantity: a.purchase_quantity.trim() ? Number(a.purchase_quantity) : null,
         })),
         category: category.trim() || null,
         servings: servings ? Number(servings) : null,
@@ -391,6 +426,7 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
         notes: notes.trim() || null,
         steps: steps.map((step) => step.trim()).filter(Boolean),
         image_url: photoUrl,
+        is_public: isPublic,
         supermarket_total: palengkeEstimate ? supermarketTotal : null,
       };
       if (recipeId) {
@@ -428,6 +464,8 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
       </View>
     );
   }
+
+  const purchaseModalEntry = added.find((entry) => entry.item._id === purchaseModalId);
 
   return (
     <View style={styles.root}>
@@ -489,10 +527,9 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
             onPrepTime={setPrepTime}
             difficulty={difficulty}
             onDifficulty={setDifficulty}
+            isPublic={isPublic}
+            onIsPublic={setIsPublic}
             location={location}
-            outletName={outletName}
-            onOutletName={setOutletName}
-            onOpenPicker={() => setPickerOpen(true)}
             palengkeTotal={palengkeTotal}
             savings={savings}
             estimating={estimating}
@@ -513,7 +550,6 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
         {tab === 'search' && (
           <SearchTab
             location={location}
-            outletName={outletName}
             addedIds={new Set(added.map((a) => a.item._id))}
             onAdd={addIngredient}
           />
@@ -523,7 +559,7 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
           <BasketTab
             added={added}
             estimate={palengkeEstimate}
-            outletName={outletName}
+            onEditPurchaseDetails={setPurchaseModalId}
             copyImportNotice={copyImportNotice}
             palengkeTotal={palengkeTotal}
             supermarketTotal={supermarketTotal}
@@ -537,7 +573,19 @@ export default function SmartNoteScreen({ recipeId, initialTitle, initialNotes, 
         )}
       </KeyboardAvoidingView>
 
-      <LocationPicker visible={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={setLocation} />
+      {purchaseModalEntry && (
+        <PurchaseDetailsModal
+          key={purchaseModalEntry.item._id}
+          item={purchaseModalEntry.item}
+          initialDetails={purchaseModalEntry}
+          onClose={() => setPurchaseModalId(null)}
+          onSave={(details) => {
+            setAdded((current) => current.map((entry) => entry.item._id === purchaseModalId ? { ...entry, ...details } : entry));
+            setPurchaseModalId(null);
+          }}
+        />
+      )}
+
     </View>
   );
 }
@@ -557,10 +605,9 @@ interface ComposeProps {
   onPrepTime: (v: string) => void;
   difficulty: Difficulty | null;
   onDifficulty: (v: Difficulty | null) => void;
+  isPublic: boolean;
+  onIsPublic: (value: boolean) => void;
   location: Location | null;
-  outletName: string;
-  onOutletName: (v: string) => void;
-  onOpenPicker: () => void;
   palengkeTotal: number;
   savings: number;
   estimating: boolean;
@@ -616,33 +663,18 @@ function ComposeTab(p: ComposeProps) {
       </Pressable>
       {p.photoError && <Text style={styles.errorBanner}>{p.photoError}</Text>}
 
-      <Pressable onPress={p.onOpenPicker} style={styles.locationRow}>
+      <View style={styles.profileLocation}>
         <Text style={{ fontSize: 14 }}>📍</Text>
         <Text style={styles.locationText} numberOfLines={1}>
-          {p.location ? `City: ${p.location.name}` : 'Choose city or municipality'}
+          {p.location ? `Price location: ${p.location.name}` : 'Set your shopping city in Settings for price estimates'}
         </Text>
-        <Text style={styles.locationChange}>{p.location ? 'Change' : 'Choose'}</Text>
-      </Pressable>
-
-      <View style={styles.outletField}>
-        <Text style={styles.metaLabel}>Specific store or market</Text>
-        <TextInput
-          style={styles.outletInput}
-          placeholder="e.g. Puregold Cebu, SM City, Robinsons Galleria"
-          placeholderTextColor={colors.muted}
-          value={p.outletName}
-          onChangeText={p.onOutletName}
-          maxLength={120}
-          autoCapitalize="words"
-        />
-        <Text style={styles.outletHint}>Prices are matched to this outlet in the selected city. Leave blank for city-wide averages.</Text>
       </View>
       {!!p.copyImportNotice && <Text style={styles.importNotice}>{p.copyImportNotice}</Text>}
 
       {p.addedCount > 0 && (
         <View style={styles.totalPreview}>
           <View>
-            <Text style={styles.totalPreviewLabel}>{p.outletName.trim() ? `${p.outletName.trim()} · Estimated total` : 'Estimated total'}</Text>
+            <Text style={styles.totalPreviewLabel}>Estimated total</Text>
             <Text style={styles.totalPreviewValue}>
               {p.estimating ? '…' : peso(p.palengkeTotal)}
             </Text>
@@ -665,6 +697,11 @@ function ComposeTab(p: ComposeProps) {
       />
 
       <StepsEditor steps={p.steps} onChange={p.onStepsChange} />
+
+      <Pressable onPress={() => p.onIsPublic(!p.isPublic)} style={styles.shareToggle} accessibilityRole="switch" accessibilityState={{ checked: p.isPublic }}>
+        <View style={styles.shareToggleTextWrap}><Text style={styles.shareToggleTitle}>Share with the community</Text><Text style={styles.shareToggleDetail}>Other cooks can rate and save this recipe.</Text></View>
+        <View style={[styles.shareSwitch, p.isPublic && styles.shareSwitchActive]}><View style={[styles.shareKnob, p.isPublic && styles.shareKnobActive]} /></View>
+      </Pressable>
 
       <View style={styles.metaGrid}>
         <View style={styles.metaField}>
@@ -729,12 +766,11 @@ function ComposeTab(p: ComposeProps) {
 
 interface SearchProps {
   location: Location | null;
-  outletName: string;
   addedIds: Set<string>;
   onAdd: (item: Item) => void;
 }
 
-function SearchTab({ location, outletName, addedIds, onAdd }: SearchProps) {
+function SearchTab({ location, addedIds, onAdd }: SearchProps) {
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState('All');
   const [results, setResults] = useState<Item[]>([]);
@@ -785,7 +821,6 @@ function SearchTab({ location, outletName, addedIds, onAdd }: SearchProps) {
   );
 
   const handleScanned = async (code: string) => {
-    if (!location) return;
     setScanBusy(true);
     setScanMessage(null);
     try {
@@ -796,33 +831,21 @@ function SearchTab({ location, outletName, addedIds, onAdd }: SearchProps) {
         setScanMessage(`No product found for that barcode. Try searching "${code}" by name instead, or add it manually.`);
       } else {
         setScanConfirm(result.item);
-        setScanPriceEstimates({ loading: true, palengke: null, supermarket: null });
-        Promise.all([
-          getItemPriceEstimate({
-            itemId: result.item._id,
-            locationCode: location.code,
-            outletName: outletName.trim() || undefined,
-            unit: result.item.baseline_unit,
-            source: 'palengke',
-          }),
-          getItemPriceEstimate({
-            itemId: result.item._id,
-            locationCode: location.code,
-            outletName: outletName.trim() || undefined,
-            unit: result.item.baseline_unit,
-            source: 'supermarket',
-          }),
-        ])
-          .then(([palengke, supermarket]) => {
-            const palengkeRow = palengke.estimates.find((row) => row.unit === result.item.baseline_unit);
-            const supermarketRow = supermarket.estimates.find((row) => row.unit === result.item.baseline_unit);
-            setScanPriceEstimates({
-              loading: false,
-              palengke: palengkeRow?.average_price ?? null,
-              supermarket: supermarketRow?.average_price ?? null,
-            });
-          })
-          .catch(() => setScanPriceEstimates({ loading: false, palengke: null, supermarket: null }));
+        if (location) {
+          setScanPriceEstimates({ loading: true, palengke: null, supermarket: null });
+          Promise.all([
+            getItemPriceEstimate({ itemId: result.item._id, locationCode: location.code, unit: result.item.baseline_unit, source: 'palengke' }),
+            getItemPriceEstimate({ itemId: result.item._id, locationCode: location.code, unit: result.item.baseline_unit, source: 'supermarket' }),
+          ])
+            .then(([palengke, supermarket]) => {
+              const palengkeRow = palengke.estimates.find((row) => row.unit === result.item.baseline_unit);
+              const supermarketRow = supermarket.estimates.find((row) => row.unit === result.item.baseline_unit);
+              setScanPriceEstimates({ loading: false, palengke: palengkeRow?.average_price ?? null, supermarket: supermarketRow?.average_price ?? null });
+            })
+            .catch(() => setScanPriceEstimates({ loading: false, palengke: null, supermarket: null }));
+        } else {
+          setScanPriceEstimates(null);
+        }
       }
     } catch (err) {
       setScannerOpen(false);
@@ -832,20 +855,11 @@ function SearchTab({ location, outletName, addedIds, onAdd }: SearchProps) {
     }
   };
 
-  if (!location) {
-    return (
-      <View style={styles.centerFill}>
-        <Text style={styles.muted}>Set a shopping location on the Compose tab first.</Text>
-      </View>
-    );
-  }
-
   if (selected) {
     return (
       <IngredientDetail
         item={selected}
         location={location}
-        outletName={outletName}
         onBack={() => setSelected(null)}
         onAdd={() => {
           onAdd(selected);
@@ -928,23 +942,25 @@ function SearchTab({ location, outletName, addedIds, onAdd }: SearchProps) {
         item={scanConfirm}
         priceEstimates={scanPriceEstimates ?? undefined}
         onCancel={() => setScanConfirm(null)}
-        onReportPrice={() => {
-          if (scanConfirm) setPriceReportItem(scanConfirm);
+        onReportPrice={location ? () => {
+          if (scanConfirm && location) setPriceReportItem(scanConfirm);
           setScanConfirm(null);
-        }}
+        } : undefined}
         onConfirm={() => {
           if (scanConfirm) onAdd(scanConfirm);
           setScanConfirm(null);
         }}
       />
-      <ScannedPriceModal
-        visible={!!priceReportItem}
-        item={priceReportItem}
-        location={location}
-        outletName={outletName}
-        onClose={() => setPriceReportItem(null)}
-        onSubmitted={() => setPriceReportItem(null)}
-      />
+      {location && (
+        <ScannedPriceModal
+          visible={!!priceReportItem}
+          item={priceReportItem}
+          location={location}
+          outletName=""
+          onClose={() => setPriceReportItem(null)}
+          onSubmitted={() => setPriceReportItem(null)}
+        />
+      )}
       {scanBusy && (
         <View style={styles.scanBusyOverlay}>
           <ActivityIndicator color={colors.accent} />
@@ -959,13 +975,11 @@ function SearchTab({ location, outletName, addedIds, onAdd }: SearchProps) {
 function IngredientDetail({
   item,
   location,
-  outletName,
   onBack,
   onAdd,
 }: {
   item: Item;
-  location: Location;
-  outletName: string;
+  location: Location | null;
   onBack: () => void;
   onAdd: () => void;
 }) {
@@ -976,18 +990,22 @@ function IngredientDetail({
     let cancelled = false;
     setRows(null);
     setError(null);
+    if (!location) {
+      setRows([]);
+      return;
+    }
     (async () => {
       try {
         const [pal, sm] = await Promise.all([
-          getItemPriceEstimate({ itemId: item._id, locationCode: location.code, outletName: outletName.trim() || undefined, unit: item.baseline_unit, source: 'palengke' }),
-          getItemPriceEstimate({ itemId: item._id, locationCode: location.code, outletName: outletName.trim() || undefined, unit: item.baseline_unit, source: 'supermarket' }),
+          getItemPriceEstimate({ itemId: item._id, locationCode: location.code, unit: item.baseline_unit, source: 'palengke' }),
+          getItemPriceEstimate({ itemId: item._id, locationCode: location.code, unit: item.baseline_unit, source: 'supermarket' }),
         ]);
         if (cancelled) return;
         const palRow = pal.estimates.find((e) => e.unit === item.baseline_unit) ?? null;
         const smRow = sm.estimates.find((e) => e.unit === item.baseline_unit) ?? null;
         setRows([
-          { label: outletName.trim() ? `${outletName.trim()} · Palengke` : 'Palengke', row: palRow },
-          { label: outletName.trim() ? `${outletName.trim()} · Supermarket` : 'Supermarket', row: smRow },
+          { label: 'Palengke', row: palRow },
+          { label: 'Supermarket', row: smRow },
         ]);
       } catch (err) {
         if (!cancelled) setError(describeError(err));
@@ -996,7 +1014,7 @@ function IngredientDetail({
     return () => {
       cancelled = true;
     };
-  }, [item._id, location.code, outletName]);
+  }, [item._id, location?.code]);
 
   const cheapestLabel = useMemo(() => {
     if (!rows) return null;
@@ -1050,9 +1068,9 @@ function IngredientDetail({
           <View style={styles.tipBox}>
             <Text style={styles.tipTitle}>Palengke Tip</Text>
             <Text style={styles.tipText}>
-              {outletName.trim()
-                ? `Showing reports for ${outletName.trim()} in ${location.name}.`
-                : 'Prices are crowdsourced across nearby stores and markets. Name an outlet on Compose to narrow the comparison.'}
+              {location
+                ? `Prices are estimated for ${location.name}. Record the store and exact price in this ingredient's purchase details.`
+                : 'Set your shopping city in Settings to see local estimates. You can still add the ingredient and record what you paid.'}
             </Text>
           </View>
 
@@ -1070,7 +1088,7 @@ function IngredientDetail({
 interface BasketProps {
   added: AddedIngredient[];
   estimate: RecipeEstimate | null;
-  outletName: string;
+  onEditPurchaseDetails: (id: string) => void;
   copyImportNotice: string | null;
   palengkeTotal: number;
   supermarketTotal: number;
@@ -1102,11 +1120,11 @@ function BasketTab(p: BasketProps) {
       <View style={styles.summaryCard}>
         <View style={styles.summaryRow}>
           <View>
-            <Text style={styles.summaryLabel}>{p.outletName.trim() ? `${p.outletName.trim()} · Palengke` : 'Palengke Total'}</Text>
+            <Text style={styles.summaryLabel}>Palengke estimate</Text>
             <Text style={styles.summaryValueGreen}>{peso(p.palengkeTotal)}</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.summaryLabel}>{p.outletName.trim() ? `${p.outletName.trim()} · Supermarket` : 'Supermarket Total'}</Text>
+            <Text style={styles.summaryLabel}>Supermarket estimate</Text>
             <Text style={styles.summaryValueMuted}>{peso(p.supermarketTotal)}</Text>
           </View>
         </View>
@@ -1117,35 +1135,45 @@ function BasketTab(p: BasketProps) {
       </View>
 
       <View style={{ gap: 8 }}>
-        {p.added.map(({ item, quantity }) => {
+        {p.added.map((entry) => {
+          const { item, quantity } = entry;
           const line = p.estimate?.lines.find((l) => l.item_id === item._id);
+          const cost = manualPurchaseCost(entry) ?? (line?.priced ? line.cost : undefined);
           return (
-            <View key={item._id} style={styles.basketRow}>
-              <Thumbnail uri={item.image_url} category={item.category} size={40} />
-              <View style={styles.flex}>
-                <Text style={styles.basketName} numberOfLines={1}>
-                  {item.default_name}
+            <View key={item._id} style={styles.basketCard}>
+              <View style={styles.basketRow}>
+                <Thumbnail uri={item.image_url} category={item.category} size={40} />
+                <View style={styles.flex}>
+                  <Text style={styles.basketName} numberOfLines={1}>{item.default_name}</Text>
+                  <Text style={styles.basketUnit}>{item.baseline_unit}</Text>
+                </View>
+                <View style={styles.stepper}>
+                  <Pressable onPress={() => p.onChangeQty(item._id, -1)} style={styles.stepButton}>
+                    <Text style={styles.stepText}>−</Text>
+                  </Pressable>
+                  <Text style={styles.stepQty}>{quantity}</Text>
+                  <Pressable onPress={() => p.onChangeQty(item._id, 1)} style={[styles.stepButton, styles.stepButtonAccent]}>
+                    <Text style={[styles.stepText, { color: colors.accent }]}>+</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.basketCost}>{cost !== undefined ? peso(cost) : '—'}</Text>
+                <Pressable onPress={() => p.onRemove(item._id)} style={styles.removeCircle}>
+                  <Text style={styles.removeCircleText}>✕</Text>
+                </Pressable>
+              </View>
+              <View style={styles.purchaseDetails}>
+                {!!entry.purchase_outlet && <Text style={styles.purchaseOutlet}>{entry.purchase_outlet}</Text>}
+                <Text style={styles.purchaseSummary}>
+                  {[
+                    entry.purchase_price ? `Paid ${peso(Number(entry.purchase_price))}` : '',
+                    entry.purchase_weight_grams ? `${entry.purchase_weight_grams} g` : '',
+                    entry.purchase_quantity ? `Bought ${entry.purchase_quantity} ${item.baseline_unit}` : '',
+                  ].filter(Boolean).join(' · ') || 'No purchase details recorded'}
                 </Text>
-                <Text style={styles.basketUnit}>{item.baseline_unit}</Text>
-              </View>
-
-              <View style={styles.stepper}>
-                <Pressable onPress={() => p.onChangeQty(item._id, -1)} style={styles.stepButton}>
-                  <Text style={styles.stepText}>−</Text>
-                </Pressable>
-                <Text style={styles.stepQty}>{quantity}</Text>
-                <Pressable onPress={() => p.onChangeQty(item._id, 1)} style={[styles.stepButton, styles.stepButtonAccent]}>
-                  <Text style={[styles.stepText, { color: colors.accent }]}>+</Text>
+                <Pressable onPress={() => p.onEditPurchaseDetails(item._id)} style={styles.purchaseEditButton}>
+                  <Text style={styles.purchaseToggleText}>Edit details</Text>
                 </Pressable>
               </View>
-
-              <Text style={styles.basketCost}>
-                {line?.priced && line.cost !== undefined ? peso(line.cost) : '—'}
-              </Text>
-
-              <Pressable onPress={() => p.onRemove(item._id)} style={styles.removeCircle}>
-                <Text style={styles.removeCircleText}>✕</Text>
-              </Pressable>
             </View>
           );
         })}
@@ -1255,7 +1283,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   photoChangeBadgeText: { fontFamily: fonts.bodyMedium, fontSize: 11, color: colors.cream },
-  locationRow: {
+  profileLocation: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -1267,20 +1295,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   locationText: { flex: 1, fontSize: 13, fontFamily: fonts.body, color: colors.cream },
-  locationChange: { fontSize: 12, fontFamily: fonts.bodySemibold, color: colors.accent },
-  outletField: { gap: 5 },
-  outletInput: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    fontSize: 13,
-    fontFamily: fonts.body,
-    color: colors.cream,
-  },
-  outletHint: { color: colors.muted, fontSize: 10, lineHeight: 15 },
   importNotice: { color: colors.blue, backgroundColor: colors.blueMuted, borderWidth: 1, borderColor: colors.blueBorder, borderRadius: 10, padding: 10, fontSize: 11, lineHeight: 16 },
 
   totalPreview: {
@@ -1498,11 +1512,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  basketCard: {
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 14,
+    borderRadius: radius,
     padding: 10,
+    gap: 9,
   },
   basketName: { fontSize: 12, fontFamily: fonts.body, color: colors.cream },
   basketUnit: { fontSize: 11, fontFamily: fonts.body, color: colors.muted, fontStyle: 'italic' },
@@ -1530,6 +1547,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   removeCircleText: { fontSize: 10, color: colors.red },
+  purchaseDetails: { gap: 4, paddingTop: 2 },
+  purchaseOutlet: { fontSize: 12, fontFamily: fonts.bodyMedium, color: colors.cream },
+  purchaseSummary: { fontSize: 11, fontFamily: fonts.body, color: colors.muted },
+  purchaseEditButton: { alignSelf: 'flex-start', paddingVertical: 4 },
+  purchaseToggleText: { fontSize: 11, fontFamily: fonts.bodySemibold, color: colors.accent },
 
   emptyButton: {
     marginTop: 14,
@@ -1541,6 +1563,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   emptyButtonText: { color: colors.accent, fontFamily: fonts.bodyMedium, fontSize: 12 },
+
+  shareToggle: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, marginTop: 14, marginBottom: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 13 },
+  shareToggleTextWrap: { flex: 1 },
+  shareToggleTitle: { color: colors.cream, fontFamily: fonts.bodyMedium, fontSize: 12 },
+  shareToggleDetail: { color: colors.muted, fontFamily: fonts.body, fontSize: 10, marginTop: 3 },
+  shareSwitch: { width: 38, height: 22, borderRadius: 11, borderWidth: 1, borderColor: colors.borderMed, backgroundColor: colors.faint, padding: 2, justifyContent: 'center' },
+  shareSwitchActive: { borderColor: colors.green, backgroundColor: colors.green },
+  shareKnob: { width: 16, height: 16, borderRadius: 8, backgroundColor: colors.muted },
+  shareKnobActive: { alignSelf: 'flex-end', backgroundColor: colors.bg },
 
   saveRecipeButton: {
     backgroundColor: colors.accent,

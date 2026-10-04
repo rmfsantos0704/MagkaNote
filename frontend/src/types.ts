@@ -26,7 +26,7 @@ export interface EstimateLine {
   measurement_unit: MeasurementUnit;
   priced: boolean;
   reason?: 'item_not_found' | 'no_price_data' | 'no_price_in_this_unit';
-  origin?: 'crowdsourced' | 'baseline';
+  origin?: 'crowdsourced' | 'baseline' | 'purchase';
   confidence?: 'low' | 'medium' | 'high';
   unit_price?: number;
   cost?: number;
@@ -61,6 +61,7 @@ export interface RecipeSummary {
   difficulty: Difficulty | null;
   image_url: string | null;
   is_favorite: boolean;
+  is_public?: boolean;
   item_count: number;
   total_estimated_cost: number;
   total_supermarket_cost: number | null;
@@ -73,6 +74,10 @@ export interface RecipeItemDetail {
   item_id: Item;
   quantity: number;
   measurement_unit: MeasurementUnit;
+  purchase_outlet?: string | null;
+  purchase_price?: number | null;
+  purchase_weight_grams?: number | null;
+  purchase_quantity?: number | null;
 }
 
 /** Full recipe returned by GET /api/recipes/:id, used to load SmartNote for editing. */
@@ -87,6 +92,7 @@ export interface RecipeDetail {
   notes: string | null;
   image_url: string | null;
   is_favorite: boolean;
+  is_public: boolean;
   location_psgc_code: string | null;
   location_name: string | null;
   outlet_name?: string | null;
@@ -105,7 +111,15 @@ export interface SaveRecipePayload {
   location_name?: string;
   outlet_name?: string | null;
   source?: SourceType;
-  items: { item_id: string; quantity: number; measurement_unit: MeasurementUnit }[];
+  items: {
+    item_id: string;
+    quantity: number;
+    measurement_unit: MeasurementUnit;
+    purchase_outlet?: string | null;
+    purchase_price?: number | null;
+    purchase_weight_grams?: number | null;
+    purchase_quantity?: number | null;
+  }[];
   category?: string | null;
   servings?: number | null;
   prep_time?: string | null;
@@ -114,6 +128,64 @@ export interface SaveRecipePayload {
   image_url?: string | null;
   supermarket_total?: number | null;
   steps?: string[];
+  is_public?: boolean;
+}
+
+export interface GroceryListEntry {
+  _id: string;
+  item_id: Item;
+  quantity: number;
+  measurement_unit: MeasurementUnit;
+  checked: boolean;
+}
+
+export interface GroceryList {
+  _id: string;
+  user_id: string;
+  items: GroceryListEntry[];
+}
+
+export interface CommunityRecipe {
+  _id: string;
+  title: string;
+  author: string;
+  author_id: string;
+  area: string;
+  image_url: string | null;
+  cost: number;
+  servings: number | null;
+  category: string | null;
+  tags: string[];
+  ingredients: { name: string; amount: string }[];
+  steps: string[];
+  rating_average: number;
+  rating_count: number;
+  created_at: string;
+}
+
+export interface AppNotification {
+  _id: string;
+  type: 'rating' | 'price_report' | 'community';
+  title: string;
+  message: string;
+  related_id: string | null;
+  read_at: string | null;
+  createdAt: string;
+}
+
+export interface SavingsSummary {
+  basis: 'saved_recipe_estimates';
+  total_estimated_savings: number;
+  recent_estimated_savings: number;
+  recipe_count: number;
+  recipes: {
+    recipe_id: string;
+    title: string;
+    palengke_estimate: number;
+    supermarket_estimate: number;
+    estimated_savings: number;
+    created_at: string;
+  }[];
 }
 
 export interface DeviceUser {

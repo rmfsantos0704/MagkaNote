@@ -6,6 +6,7 @@ const PriceReport = require('../models/PriceReport');
 const { MEASUREMENT_UNITS } = require('../models/PriceReport');
 const User = require('../models/User');
 const Item = require('../models/Item');
+const Notification = require('../models/Notification');
 
 const SOURCE_TYPES = ['palengke', 'supermarket', 'sari_sari_store'];
 
@@ -92,6 +93,14 @@ router.post('/', async (req, res, next) => {
       location_name,
       outlet_name: outlet_name?.trim() || null,
       source_type,
+    });
+
+    await Notification.create({
+      user_id,
+      type: 'price_report',
+      title: 'Price report received',
+      message: `Your ${item.default_name} price report has been added to community estimates.`,
+      related_id: report._id,
     });
 
     res.status(201).json(report);

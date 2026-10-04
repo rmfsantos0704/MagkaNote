@@ -7,9 +7,12 @@ import { applyDefaultFont, useAppFonts } from './fonts';
 import AuthScreen, { type AuthMode } from './screens/AuthScreen';
 import CommunityScreen from './screens/CommunityScreen';
 import DashboardScreen from './screens/DashboardScreen';
+import GroceryListScreen from './screens/GroceryListScreen';
 import MarketDetailScreen from './screens/MarketdetailScreen';
 import MarketsScreen from './screens/MarketsScreen';
+import NotificationsScreen from './screens/NotificationsScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
+import SavingsScreen from './screens/SavingsScreen';
 import SmartNoteScreen from './screens/SmartNoteScreen';
 import type { CommunityRecipeCopy } from './communityCopies';
 import SettingsScreen from './features/settings/SettingsScreen';
@@ -24,6 +27,9 @@ type Route =
   | { screen: 'markets' }
   | { screen: 'marketDetail'; marketId: string }
   | { screen: 'settings' }
+  | { screen: 'groceryList' }
+  | { screen: 'notifications' }
+  | { screen: 'savings' }
   | { screen: 'smartnote'; recipeId?: string; recipeTitle?: string; recipeNotes?: string; communityCopy?: CommunityRecipeCopy };
 
 /**
@@ -80,7 +86,7 @@ export default function AppRoot() {
   const activeTab: NavTab =
     route.screen === 'community'
       ? 'community'
-      : route.screen === 'dashboard'
+      : route.screen === 'dashboard' || route.screen === 'groceryList' || route.screen === 'notifications' || route.screen === 'savings'
       ? 'dashboard'
       : route.screen === 'markets' || route.screen === 'marketDetail'
       ? 'markets'
@@ -105,6 +111,9 @@ export default function AppRoot() {
           <DashboardScreen
             onNew={() => setRoute({ screen: 'smartnote' })}
             onOpenSettings={() => setRoute({ screen: 'settings' })}
+            onOpenGroceryList={() => setRoute({ screen: 'groceryList' })}
+            onOpenNotifications={() => setRoute({ screen: 'notifications' })}
+            onOpenSavings={() => setRoute({ screen: 'savings' })}
             onEditRecipe={(id, title, notes, copy) => id.startsWith('community-copy:')
               ? setRoute({ screen: 'smartnote', recipeTitle: title, recipeNotes: notes, communityCopy: copy })
               : setRoute({ screen: 'smartnote', recipeId: id })}
@@ -131,6 +140,9 @@ export default function AppRoot() {
         {route.screen === 'marketDetail' && (
           <MarketDetailScreen marketId={route.marketId} onBack={() => setRoute({ screen: 'markets' })} />
         )}
+        {route.screen === 'groceryList' && <GroceryListScreen onBack={backToDashboard} />}
+        {route.screen === 'notifications' && <NotificationsScreen onBack={backToDashboard} />}
+        {route.screen === 'savings' && <SavingsScreen onBack={backToDashboard} />}
       </View>
 
       {showNavBar && (

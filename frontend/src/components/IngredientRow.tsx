@@ -36,7 +36,7 @@ export function IngredientRow({ entry, line, onQuantity, onUnit, onRemove }: Pro
           </Text>
           {line?.priced && (
             <Text style={styles.source}>
-              {line.origin === 'crowdsourced' ? 'Community prices' : 'Supermarket baseline'}
+              {line.origin === 'purchase' ? 'Your purchase' : line.origin === 'crowdsourced' ? 'Community prices' : 'Supermarket baseline'}
               {line.unit_price !== undefined ? ` · ${peso(line.unit_price)}/${unit}` : ''}
             </Text>
           )}

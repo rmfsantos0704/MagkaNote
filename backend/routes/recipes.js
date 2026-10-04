@@ -24,6 +24,14 @@ function validateItems(items) {
     if (!MEASUREMENT_UNITS.includes(line.measurement_unit)) {
       return `measurement_unit must be one of: ${MEASUREMENT_UNITS.join(', ')}`;
     }
+    if (line.purchase_outlet != null && (typeof line.purchase_outlet !== 'string' || line.purchase_outlet.trim().length > 120)) {
+      return 'purchase_outlet must be 120 characters or fewer';
+    }
+    for (const field of ['purchase_price', 'purchase_weight_grams', 'purchase_quantity']) {
+      if (line[field] != null && (typeof line[field] !== 'number' || !Number.isFinite(line[field]) || line[field] < 0)) {
+        return `${field} must be a non-negative number`;
+      }
+    }
   }
   return null;
 }
@@ -87,7 +95,7 @@ router.post('/estimate', async (req, res, next) => {
 // Saves the recipe with a snapshot of its estimated total.
 router.post('/', async (req, res, next) => {
   try {
-    const { user_id, title, location_code, location_name, outlet_name, source, items, steps, supermarket_total } = req.body;
+    const { user_id, title, location_code, location_name, outlet_name, source, items, steps, supermarket_total, is_public } = req.body;
 
     if (!mongoose.isValidObjectId(user_id) || !(await User.exists({ _id: user_id }))) {
       return res.status(400).json({ error: 'A valid user_id is required' });
@@ -108,18 +116,21 @@ router.post('/', async (req, res, next) => {
 
     const recipe = await Recipe.create({
       user_id,
-      title,  
-            outlet_name: outlet_name?.trim() || null,
+      title,
       steps: Array.isArray(steps) ? steps.map((s) => s.trim()) : [],
-      ...pickMetadata(req.body),
+      is_public: is_public === true,
       location_psgc_code: location_code,
       location_name: location_name ?? null,
       outlet_name: outlet_name?.trim() || null,
       ...pickMetadata(req.body),
-      items: items.map(({ item_id, quantity, measurement_unit }) => ({
+      items: items.map(({ item_id, quantity, measurement_unit, purchase_outlet, purchase_price, purchase_weight_grams, purchase_quantity }) => ({
         item_id,
         quantity,
         measurement_unit,
+        purchase_outlet: purchase_outlet?.trim() || null,
+        purchase_price: purchase_price ?? null,
+        purchase_weight_grams: purchase_weight_grams ?? null,
+        purchase_quantity: purchase_quantity ?? null,
       })),
       total_estimated_cost: estimate.total.estimated,
       total_supermarket_cost: typeof supermarket_total === 'number' ? supermarket_total : null,
@@ -143,7 +154,7 @@ router.get('/', async (req, res, next) => {
     const recipes = await Recipe.find({ user_id })
       .sort({ is_favorite: -1, createdAt: -1 })
       .limit(100)
-      .select('title category servings prep_time difficulty image_url is_favorite items total_estimated_cost total_supermarket_cost outlet_name createdAt');
+      .select('title category servings prep_time difficulty image_url is_favorite is_public items total_estimated_cost total_supermarket_cost outlet_name createdAt');
 
     res.json({
       count: recipes.length,
@@ -156,6 +167,7 @@ router.get('/', async (req, res, next) => {
         difficulty: r.difficulty,
         image_url: r.image_url,
         is_favorite: r.is_favorite,
+        is_public: r.is_public,
         item_count: r.items.length,
         total_estimated_cost: r.total_estimated_cost,
         total_supermarket_cost: r.total_supermarket_cost,
@@ -166,6 +178,18 @@ router.get('/', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// PATCH /api/recipes/:id/share  body: { user_id, is_public }
+router.patch('/:id/share', async (req, res, next) => {
+  try {
+    const { user_id, is_public } = req.body;
+    if (!mongoose.isValidObjectId(req.params.id) || !mongoose.isValidObjectId(user_id)) return res.status(400).json({ error: 'A valid recipe id and user_id are required' });
+    if (typeof is_public !== 'boolean') return res.status(400).json({ error: 'is_public must be a boolean' });
+    const recipe = await Recipe.findOneAndUpdate({ _id: req.params.id, user_id }, { $set: { is_public } }, { new: true }).select('_id is_public');
+    if (!recipe) return res.status(404).json({ error: 'Recipe not found' });
+    res.json(recipe);
+  } catch (err) { next(err); }
 });
 
 // PATCH /api/recipes/:id/favorite   body: { user_id, is_favorite }
@@ -218,7 +242,7 @@ router.get('/:id', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-        const { user_id, title, location_code, location_name, outlet_name, source, items, steps, supermarket_total } = req.body;
+        const { user_id, title, location_code, location_name, outlet_name, source, items, steps, supermarket_total, is_public } = req.body;
 
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ error: 'Invalid recipe id' });
@@ -250,11 +274,15 @@ router.put('/:id', async (req, res, next) => {
       outlet_name: outlet_name === undefined ? existing.outlet_name : outlet_name?.trim() || null,
       steps: steps === undefined ? existing.steps : steps.map((s) => s.trim()),
       ...pickMetadata(req.body),
-      ...pickMetadata(req.body),
-      items: items.map(({ item_id, quantity, measurement_unit }) => ({
+      ...(typeof is_public === 'boolean' ? { is_public } : {}),
+      items: items.map(({ item_id, quantity, measurement_unit, purchase_outlet, purchase_price, purchase_weight_grams, purchase_quantity }) => ({
         item_id,
         quantity,
         measurement_unit,
+        purchase_outlet: purchase_outlet?.trim() || null,
+        purchase_price: purchase_price ?? null,
+        purchase_weight_grams: purchase_weight_grams ?? null,
+        purchase_quantity: purchase_quantity ?? null,
       })),
       total_estimated_cost: estimate.total.estimated,
       total_supermarket_cost: typeof supermarket_total === 'number' ? supermarket_total : existing.total_supermarket_cost,

@@ -23,6 +23,10 @@ const RecipeItemSchema = new Schema(
       enum: MEASUREMENT_UNITS,
       required: true,
     },
+    purchase_outlet: { type: String, trim: true, maxlength: 120, default: null },
+    purchase_price: { type: Number, min: 0, default: null },
+    purchase_weight_grams: { type: Number, min: 0, default: null },
+    purchase_quantity: { type: Number, min: 0, default: null },
   },
   { _id: false }
 );
@@ -53,6 +57,7 @@ const RecipeSchema = new Schema(
     image_url: { type: String, trim: true, default: null },
     // Starred recipes stay pinned to the top of the dashboard.
     is_favorite: { type: Boolean, default: false, index: true },
+    is_public: { type: Boolean, default: false, index: true },
     // The PSGC city/municipality this recipe was priced against, so
     // reopening it for editing can reload the same location instead of
     // asking again. Still just a starting point — editable like everything else.

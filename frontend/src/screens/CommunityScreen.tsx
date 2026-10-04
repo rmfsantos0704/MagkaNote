@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Animated,
+  Alert,
   FlatList,
   Image,
   ImageBackground,
@@ -17,9 +18,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts, radius } from '../theme';
 import { peso } from '../format';
 import { addCommunityRecipeCopy, getCommunityRecipeCopies } from '../communityCopies';
+import { copyCommunityRecipe, describeError, getCommunityRecipeRatings, listCommunityRecipes, rateCommunityRecipe, reportCommunityContent } from '../api';
+import { getDeviceUser } from '../deviceUser';
+import { getUserSettings } from '../features/settings/settingsApi';
 
 interface CommunityRecipe {
-  id: number;
+  id: number | string;
+  authorId?: string;
   title: string;
   author: string;
   area: string;
@@ -33,6 +38,9 @@ interface CommunityRecipe {
   verified: boolean;
   ingredients: { name: string; amount: string }[];
   steps: string[];
+  ratingAverage?: number;
+  ratingCount?: number;
+  createdAt?: string;
 }
 
 const RECIPES: CommunityRecipe[] = [
@@ -52,48 +60,143 @@ export default function CommunityScreen() {
   const [sort, setSort] = useState('Trending');
   const [category, setCategory] = useState('All');
   const [search, setSearch] = useState('');
-  const [liked, setLiked] = useState<number[]>([]);
-  const [saved, setSaved] = useState<number[]>([]);
-  const [copied, setCopied] = useState<number[]>([]);
+  const [liked, setLiked] = useState<(number | string)[]>([]);
+  const [saved, setSaved] = useState<(number | string)[]>([]);
+  const [copied, setCopied] = useState<(number | string)[]>([]);
+  const [feedRecipes, setFeedRecipes] = useState<CommunityRecipe[]>(RECIPES);
+  const [currentUserId, setCurrentUserId] = useState('');
+  const [locationName, setLocationName] = useState('');
+  const [rating, setRating] = useState(5);
+  const [feedback, setFeedback] = useState('');
+  const [ratingBusy, setRatingBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [ratingReviews, setRatingReviews] = useState<{ _id: string; username: string; rating: number; feedback: string; created_at: string }[]>([]);
   const [selectedRecipe, setSelectedRecipe] = useState<CommunityRecipe | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [origin, setOrigin] = useState({ x: 0, y: 0, width: 1, height: 1 });
-  const cardRefs = React.useRef<Record<number, View | null>>({});
+  const cardRefs = React.useRef<Record<string, View | null>>({});
   const modalProgress = React.useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     let cancelled = false;
-    getCommunityRecipeCopies().then((copies) => {
-      if (!cancelled) setCopied(copies.map((copy) => copy.id));
+    getDeviceUser()
+      .then((user) => {
+        if (!cancelled) setCurrentUserId(user._id);
+        return getUserSettings(user._id);
+      })
+      .then((settings) => {
+        if (!cancelled) setLocationName(settings.preferences.location?.name ?? 'Location not set');
+      })
+      .catch(() => {
+        if (!cancelled) setLocationName('Location not set');
+      });
+
+    Promise.all([getCommunityRecipeCopies(), listCommunityRecipes()]).then(([copies, shared]) => {
+      if (cancelled) return;
+      setCopied(copies.map((copy) => copy.id));
+      setFeedRecipes(shared.map((recipe) => ({
+        id: recipe._id,
+        authorId: recipe.author_id,
+        title: recipe.title,
+        author: recipe.author,
+        area: recipe.area,
+        image: recipe.image_url ?? '',
+        cost: recipe.cost,
+        saves: 0,
+        likes: 0,
+        tags: recipe.tags,
+        timeAgo: new Date(recipe.created_at).toLocaleDateString(),
+        servings: recipe.servings ?? 0,
+        verified: false,
+        ingredients: recipe.ingredients,
+        steps: recipe.steps,
+        ratingAverage: recipe.rating_average,
+        ratingCount: recipe.rating_count,
+        createdAt: recipe.created_at,
+      })));
+    }).catch(() => {
+      getCommunityRecipeCopies().then((copies) => { if (!cancelled) setCopied(copies.map((copy) => copy.id)); });
     });
     return () => { cancelled = true; };
   }, []);
 
   const recipes = useMemo(() => {
     const query = search.trim().toLowerCase();
-    const matches = RECIPES.filter((recipe) =>
+    const matches = feedRecipes.filter((recipe) =>
       (category === 'All' || recipe.tags.includes(category)) &&
       (!query || recipe.title.toLowerCase().includes(query) || recipe.author.toLowerCase().includes(query))
     );
     if (sort === 'Cheapest') return [...matches].sort((a, b) => a.cost - b.cost);
     if (sort === 'Most Saved') return [...matches].sort((a, b) => b.saves - a.saves);
-    if (sort === 'Newest') return [...matches].reverse();
+    if (sort === 'Newest') return [...matches].sort((a, b) => {
+      if (a.createdAt && b.createdAt) return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return String(a.id).localeCompare(String(b.id));
+    });
     return [...matches].sort((a, b) => b.likes - a.likes);
-  }, [category, search, sort]);
+  }, [category, feedRecipes, search, sort]);
 
-  const toggle = (current: number[], id: number, update: (next: number[]) => void) => {
+  const toggle = (current: (number | string)[], id: number | string, update: (next: (number | string)[]) => void) => {
     update(current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   };
 
   const copyRecipe = async (recipe: CommunityRecipe) => {
-    await addCommunityRecipeCopy(recipe);
-    setCopied((current) => current.includes(recipe.id) ? current : [...current, recipe.id]);
+    try {
+      if (typeof recipe.id === 'string') {
+        if (!currentUserId) return;
+        await copyCommunityRecipe(recipe.id, currentUserId);
+      } else {
+        await addCommunityRecipeCopy({
+          id: recipe.id,
+          title: recipe.title,
+          author: recipe.author,
+          area: recipe.area,
+          image: recipe.image,
+          cost: recipe.cost,
+          tags: recipe.tags,
+          servings: recipe.servings,
+          ingredients: recipe.ingredients,
+          steps: recipe.steps,
+        });
+      }
+      setCopied((current) => current.includes(recipe.id) ? current : [...current, recipe.id]);
+      setActionError(null);
+    } catch (err) { setActionError(describeError(err)); }
+  };
+
+  const sendReport = async (targetType: 'recipe' | 'user', targetId: string, reason: string) => {
+    try {
+      const user = await getDeviceUser();
+      await reportCommunityContent({ reporter_user_id: user._id, target_type: targetType, target_id: targetId, reason });
+      Alert.alert('Report submitted', 'Thanks. The report has been sent for review.');
+    } catch (err) { Alert.alert('Could not submit report', describeError(err)); }
+  };
+
+  const chooseReportReason = (targetType: 'recipe' | 'user', targetId: string) => Alert.alert('Report this content', 'Choose the closest reason.', [
+    ...(['spam', 'harassment', 'misinformation', 'copyright', 'inappropriate', 'other'] as const).map((reason) => ({ text: reason[0].toUpperCase() + reason.slice(1), onPress: () => sendReport(targetType, targetId, reason) })),
+    { text: 'Cancel', style: 'cancel' as const },
+  ]);
+
+  const submitRating = async () => {
+    if (!selectedRecipe || typeof selectedRecipe.id !== 'string' || !currentUserId) return;
+    setRatingBusy(true);
+    try {
+      const result = await rateCommunityRecipe(selectedRecipe.id, { user_id: currentUserId, rating, feedback });
+      const update = (recipe: CommunityRecipe) => recipe.id === selectedRecipe.id ? { ...recipe, ratingAverage: result.rating_average, ratingCount: result.rating_count } : recipe;
+      setFeedRecipes((current) => current.map(update));
+      setSelectedRecipe((current) => current ? update(current) : current);
+      setRatingReviews(await getCommunityRecipeRatings(selectedRecipe.id));
+      setFeedback('');
+      setActionError(null);
+    } catch (err) { setActionError(describeError(err)); }
+    finally { setRatingBusy(false); }
   };
 
   const openRecipe = (recipe: CommunityRecipe) => {
     const show = (frame: { x: number; y: number; width: number; height: number }) => {
       setOrigin(frame);
       setSelectedRecipe(recipe);
+      setRatingReviews([]);
+      if (typeof recipe.id === 'string') getCommunityRecipeRatings(recipe.id).then(setRatingReviews).catch(() => {});
       modalProgress.setValue(0);
       setModalVisible(true);
       requestAnimationFrame(() => {
@@ -101,7 +204,7 @@ export default function CommunityScreen() {
       });
     };
 
-    const card = cardRefs.current[recipe.id];
+    const card = cardRefs.current[String(recipe.id)];
     if (card) card.measureInWindow((x, y, measuredWidth, measuredHeight) => show({ x, y, width: measuredWidth, height: measuredHeight }));
     else show({ x: (viewportWidth - 120) / 2, y: (viewportHeight - 100) / 2, width: 120, height: 100 });
   };
@@ -131,7 +234,7 @@ export default function CommunityScreen() {
             <Text style={styles.eyebrow}>Community</Text>
             <Text style={styles.heading}>MagkaNote <Text style={styles.headingAccent}>Feed</Text></Text>
           </View>
-          <View style={styles.locationPill}><View style={styles.locationDot} /><Text style={styles.locationText}>Metro Manila</Text></View>
+          <View style={styles.locationPill}><View style={styles.locationDot} /><Text style={styles.locationText} numberOfLines={1}>{locationName || 'Loading location…'}</Text></View>
         </View>
 
         <View style={styles.searchWrap}>
@@ -170,7 +273,7 @@ export default function CommunityScreen() {
           const isCopied = copied.includes(item.id);
           return (
             <Pressable
-              ref={(ref) => { cardRefs.current[item.id] = ref; }}
+              ref={(ref) => { cardRefs.current[String(item.id)] = ref; }}
               collapsable={false}
               onPress={() => openRecipe(item)}
               accessibilityRole="button"
@@ -277,6 +380,25 @@ export default function CommunityScreen() {
                     </View>
                   ))}
                 </View>
+
+                {!!selectedRecipe.ratingCount && <Text style={styles.ratingSummary}>Community rating  {selectedRecipe.ratingAverage?.toFixed(1)} / 5 · {selectedRecipe.ratingCount} ratings</Text>}
+                {ratingReviews.filter((review) => review.feedback).map((review) => <View key={review._id} style={styles.review}>
+                  <Text style={styles.reviewTitle}>{review.username} · {'★'.repeat(review.rating)}</Text>
+                  <Text style={styles.reviewText}>{review.feedback}</Text>
+                </View>)}
+                {typeof selectedRecipe.id === 'string' && selectedRecipe.authorId !== currentUserId && (
+                  <View style={styles.feedbackBox}>
+                    <Text style={styles.detailSectionTitle}>Rate this recipe</Text>
+                    <View style={styles.starRow}>{[1, 2, 3, 4, 5].map((value) => <Pressable key={value} onPress={() => setRating(value)} accessibilityLabel={`${value} stars`}><Text style={[styles.ratingStar, value <= rating && styles.ratingStarSelected]}>★</Text></Pressable>)}</View>
+                    <TextInput value={feedback} onChangeText={setFeedback} placeholder="Optional feedback" placeholderTextColor={colors.muted} maxLength={500} style={styles.feedbackInput} multiline />
+                    <Pressable onPress={submitRating} disabled={ratingBusy} style={styles.submitRating}><Text style={styles.submitRatingText}>{ratingBusy ? 'Submitting…' : 'Submit rating'}</Text></Pressable>
+                  </View>
+                )}
+                {actionError && <Text style={styles.actionError}>{actionError}</Text>}
+                {typeof selectedRecipe.id === 'string' && <View style={styles.reportRow}>
+                  <Pressable onPress={() => chooseReportReason('recipe', String(selectedRecipe.id))} style={styles.reportButton}><Text style={styles.reportText}>Report recipe</Text></Pressable>
+                  {!!selectedRecipe.authorId && <Pressable onPress={() => chooseReportReason('user', selectedRecipe.authorId!)} style={styles.reportButton}><Text style={styles.reportText}>Report author</Text></Pressable>}
+                </View>}
               </ScrollView>
             </Animated.View>
           )}
@@ -304,9 +426,9 @@ const styles = StyleSheet.create({
   eyebrow: { color: colors.muted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.7 },
   heading: { color: colors.cream, fontFamily: fonts.display, fontSize: 23, marginTop: 2 },
   headingAccent: { color: colors.accent, fontFamily: fonts.displayItalic },
-  locationPill: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: colors.greenMuted, borderColor: colors.greenBorder, borderWidth: 1 },
+  locationPill: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 10, paddingVertical: 6, maxWidth: '55%', flexShrink: 1, borderRadius: 20, backgroundColor: colors.greenMuted, borderColor: colors.greenBorder, borderWidth: 1 },
   locationDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.green },
-  locationText: { color: colors.green, fontSize: 10, fontFamily: fonts.bodyMedium },
+  locationText: { color: colors.green, fontSize: 10, fontFamily: fonts.bodyMedium, flexShrink: 1 },
   searchWrap: { height: 44, flexDirection: 'row', alignItems: 'center', marginBottom: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 12 },
   searchIcon: { color: colors.muted, fontSize: 22, marginRight: 8 },
   search: { flex: 1, color: colors.cream, fontSize: 13, paddingVertical: 0 },
@@ -340,6 +462,21 @@ const styles = StyleSheet.create({
   saveTextActive: { color: colors.accent },
   recipeTitle: { color: colors.cream, fontFamily: fonts.display, fontSize: 19, marginBottom: 11 },
   actionRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  ratingSummary: { color: colors.green, fontFamily: fonts.bodySemibold, fontSize: 12, marginBottom: 14 },
+  review: { padding: 11, marginBottom: 7, borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: colors.surface },
+  reviewTitle: { color: colors.accent, fontFamily: fonts.bodySemibold, fontSize: 10, marginBottom: 5 },
+  reviewText: { color: colors.muted, fontFamily: fonts.body, fontSize: 11, lineHeight: 16 },
+  feedbackBox: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 13, padding: 13, marginBottom: 12 },
+  starRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  ratingStar: { color: colors.muted, fontSize: 24 },
+  ratingStarSelected: { color: colors.accent },
+  feedbackInput: { minHeight: 70, color: colors.cream, fontFamily: fonts.body, fontSize: 12, lineHeight: 17, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 10, textAlignVertical: 'top' },
+  submitRating: { alignSelf: 'flex-start', backgroundColor: colors.accent, borderRadius: 10, paddingHorizontal: 15, paddingVertical: 9, marginTop: 9 },
+  submitRatingText: { color: colors.onAccent, fontFamily: fonts.bodySemibold, fontSize: 11 },
+  actionError: { color: colors.red, fontFamily: fonts.body, fontSize: 11, marginBottom: 10 },
+  reportRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  reportButton: { borderWidth: 1, borderColor: colors.redBorder, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8 },
+  reportText: { color: colors.red, fontFamily: fonts.body, fontSize: 10 },
   likeButton: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.faint, borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 11, paddingVertical: 6 },
   likeButtonActive: { backgroundColor: colors.redMuted, borderColor: colors.redBorder },
   likeIcon: { color: colors.muted, fontSize: 13 },
